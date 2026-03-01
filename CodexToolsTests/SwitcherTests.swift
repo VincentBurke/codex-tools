@@ -53,7 +53,7 @@ final class SwitcherTests: XCTestCase {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let account = try domain.addAccount(.newAPIKey(name: "Work", apiKey: "sk-123"))
             try domain.touchAccount(account.id)
@@ -123,14 +123,4 @@ private func base64URL(_ data: Data) -> String {
         .replacingOccurrences(of: "+", with: "-")
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
-}
-
-private extension Optional {
-    func unwrap(file: StaticString = #filePath, line: UInt = #line) throws -> Wrapped {
-        guard let value = self else {
-            XCTFail("Unexpected nil", file: file, line: line)
-            throw NSError(domain: "Test", code: 1)
-        }
-        return value
-    }
 }

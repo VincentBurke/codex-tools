@@ -102,11 +102,11 @@ func refreshAllUsageConcurrent(
             }
         }
 
-        var indexedUsage: [(Int, UsageInfo)] = []
-        indexedUsage.reserveCapacity(accounts.count)
+        var orderedUsage = Array<UsageInfo?>(repeating: nil, count: accounts.count)
 
         while let result = await group.next() {
-            indexedUsage.append(result)
+            let (index, usage) = result
+            orderedUsage[index] = usage
 
             if nextIndex < accounts.count {
                 let index = nextIndex
@@ -118,8 +118,10 @@ func refreshAllUsageConcurrent(
             }
         }
 
-        indexedUsage.sort { $0.0 < $1.0 }
-        return indexedUsage.map(\.1)
+        return orderedUsage.enumerated().map { index, usage in
+            precondition(usage != nil, "Missing usage result at index \(index)")
+            return usage!
+        }
     }
 }
 

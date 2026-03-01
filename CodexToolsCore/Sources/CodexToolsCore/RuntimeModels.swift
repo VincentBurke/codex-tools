@@ -14,13 +14,10 @@ public struct AccountWithUsage: Sendable, Equatable {
 
 public struct AppState: Sendable {
     public var accounts: [AccountWithUsage] = []
-    public var selectedAccountID: String?
     public var processInfo: CodexProcessInfo?
-    public var refreshingAll: Bool = false
     public var hasPendingOAuth: Bool = false
     public var usageCachedAtUnix: [String: Int64] = [:]
     public var staleUsageAccounts: Set<String> = []
-    public var sidebarMode: SidebarMode = .compact
 
     public init() {}
 
@@ -104,7 +101,6 @@ public enum ManageAccountsAction: Sendable, Equatable {
     case refreshUsage(String)
     case renameInline(id: String, newName: String)
     case delete(String)
-    case sidebarModeChanged(SidebarMode)
 }
 
 public struct ManageAccountItem: Sendable, Equatable {
@@ -159,16 +155,13 @@ public struct ManageAccountItem: Sendable, Equatable {
 public struct ManageAccountsWindowSnapshot: Sendable, Equatable {
     public var accounts: [ManageAccountItem]
     public var canSwitch: Bool
-    public var sidebarMode: SidebarMode
 
     public init(
         accounts: [ManageAccountItem] = [],
-        canSwitch: Bool = true,
-        sidebarMode: SidebarMode = .compact
+        canSwitch: Bool = true
     ) {
         self.accounts = accounts
         self.canSwitch = canSwitch
-        self.sidebarMode = sidebarMode
     }
 }
 

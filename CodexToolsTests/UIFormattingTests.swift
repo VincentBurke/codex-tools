@@ -203,6 +203,55 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(result, .toggleExpanded("b"))
     }
 
+    func testResolveManageKeyboardMoveDownSelectsNextRow() {
+        let accounts = [
+            makeManageAccount(id: "a", active: true),
+            makeManageAccount(id: "b", active: false),
+            makeManageAccount(id: "c", active: false)
+        ]
+
+        let result = resolveManageKeyboardCommand(
+            .moveDown,
+            visibleAccounts: accounts,
+            selectedAccountID: "a",
+            canSwitch: true
+        )
+
+        XCTAssertEqual(result, .select("b"))
+    }
+
+    func testResolveManageKeyboardSwitchSelectedReturnsSwitchWhenInactive() {
+        let accounts = [
+            makeManageAccount(id: "a", active: true),
+            makeManageAccount(id: "b", active: false)
+        ]
+
+        let result = resolveManageKeyboardCommand(
+            .switchSelected,
+            visibleAccounts: accounts,
+            selectedAccountID: "b",
+            canSwitch: true
+        )
+
+        XCTAssertEqual(result, .switchAccount("b"))
+    }
+
+    func testResolveManageKeyboardDeleteSelectedReturnsDeleteRequest() {
+        let accounts = [
+            makeManageAccount(id: "a", active: true),
+            makeManageAccount(id: "b", active: false)
+        ]
+
+        let result = resolveManageKeyboardCommand(
+            .deleteSelected,
+            visibleAccounts: accounts,
+            selectedAccountID: "b",
+            canSwitch: true
+        )
+
+        XCTAssertEqual(result, .requestDelete("b"))
+    }
+
     func testNextBestRecommendationPrefersFreshEntryWhenWeeklyAndFiveHourTie() {
         let entries = [
             StatusAccountEntry(
@@ -227,6 +276,83 @@ final class UIFormattingTests: XCTestCase {
 
         let recommendation = makeNextBestRecommendation(from: entries)
         XCTAssertEqual(recommendation?.accountID, "fresh")
+    }
+
+    func testReconcileSelectionIDKeepsCurrentWhenStillPresent() {
+        let accounts = [
+            makeManageAccount(id: "a", active: true),
+            makeManageAccount(id: "b", active: false)
+        ]
+
+        let resolved = reconcileSelectionID(
+            currentID: "b",
+            accounts: accounts,
+            id: \.id,
+            isActive: \.isActive
+        )
+
+        XCTAssertEqual(resolved, "b")
+    }
+
+    func testReconcileSelectionIDFallsBackToActiveThenFirst() {
+        let withActive = [
+            makeManageAccount(id: "a", active: false),
+            makeManageAccount(id: "b", active: true),
+            makeManageAccount(id: "c", active: false)
+        ]
+        XCTAssertEqual(
+            reconcileSelectionID(
+                currentID: "missing",
+                accounts: withActive,
+                id: \.id,
+                isActive: \.isActive
+            ),
+            "b"
+        )
+
+        let withoutActive = [
+            makeManageAccount(id: "x", active: false),
+            makeManageAccount(id: "y", active: false)
+        ]
+        XCTAssertEqual(
+            reconcileSelectionID(
+                currentID: nil,
+                accounts: withoutActive,
+                id: \.id,
+                isActive: \.isActive
+            ),
+            "x"
+        )
+    }
+
+    func testManageAndStatusRowDisplayModelsMatchForEquivalentValues() {
+        let manage = ManageAccountItem(
+            id: "acct-1",
+            name: "primary",
+            isActive: true,
+            isStale: true,
+            email: nil,
+            authModeLabel: "ChatGPT",
+            plan: "team",
+            lastUsed: nil,
+            fiveHourRemaining: 55,
+            weeklyRemaining: 40,
+            weeklyResetCountdown: "2d",
+            usageError: nil
+        )
+        let status = StatusAccountEntry(
+            id: "acct-1",
+            name: "primary",
+            isActive: true,
+            isStale: true,
+            fiveHourRemaining: 55,
+            weeklyRemaining: 40,
+            usageError: nil
+        )
+
+        let manageModel = makeManageRowDisplayModel(manage)
+        let statusModel = makeStatusRowDisplayModel(status)
+        XCTAssertEqual(manageModel, statusModel)
     }
 
     private func makeManageAccount(id: String, active: Bool) -> ManageAccountItem {

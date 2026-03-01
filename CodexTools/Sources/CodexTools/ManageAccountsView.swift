@@ -550,18 +550,14 @@ struct ManageAccountsView: View {
     }
 
     private func reconcileSelection() {
-        guard !visibleAccounts.isEmpty else {
-            controller.setSelectedManageAccountID(nil)
-            return
-        }
-
-        if let selectedID = controller.selectedManageAccountID,
-           visibleAccounts.contains(where: { $0.id == selectedID })
-        {
-            return
-        }
-
-        controller.setSelectedManageAccountID(visibleAccounts[0].id)
+        controller.setSelectedManageAccountID(
+            reconcileSelectionID(
+                currentID: controller.selectedManageAccountID,
+                accounts: visibleAccounts,
+                id: \.id,
+                isActive: \.isActive
+            )
+        )
     }
 
     private func reconcileExpandedRows() {

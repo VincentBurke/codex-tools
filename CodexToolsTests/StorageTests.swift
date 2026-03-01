@@ -20,7 +20,7 @@ final class StorageTests: XCTestCase {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             _ = try domain.addAccount(.newAPIKey(name: "Work", apiKey: "sk-1"))
             XCTAssertThrowsError(try domain.addAccount(.newAPIKey(name: "Work", apiKey: "sk-2")))
@@ -31,7 +31,7 @@ final class StorageTests: XCTestCase {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let first = try domain.addAccount(.newAPIKey(name: "Primary", apiKey: "sk-1"))
             let second = try domain.addAccount(.newAPIKey(name: "Secondary", apiKey: "sk-2"))
@@ -84,7 +84,7 @@ final class StorageTests: XCTestCase {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let account = try domain.addAccount(.newAPIKey(name: "Cache", apiKey: "sk-cache"))
             let entry = CachedUsageEntry(
@@ -112,26 +112,4 @@ final class StorageTests: XCTestCase {
         }
     }
 
-    func testSidebarModeRoundTrip() throws {
-        let temp = try makeTempDirectory()
-        try withEnv("CODEX_TOOLS_HOME", temp.path) {
-            let repository = FileStoreRepository()
-
-            XCTAssertEqual(try repository.loadSidebarMode(), .compact)
-            try repository.saveSidebarMode(.detailed)
-            XCTAssertEqual(try repository.loadSidebarMode(), .detailed)
-            try repository.saveSidebarMode(.compact)
-            XCTAssertEqual(try repository.loadSidebarMode(), .compact)
-        }
-    }
-}
-
-private extension Optional {
-    func unwrap(file: StaticString = #filePath, line: UInt = #line) throws -> Wrapped {
-        guard let value = self else {
-            XCTFail("Unexpected nil", file: file, line: line)
-            throw NSError(domain: "Test", code: 1)
-        }
-        return value
-    }
 }

@@ -54,9 +54,6 @@ final class AppController: ObservableObject {
 
     func setSelectedManageAccountID(_ value: String?) {
         selectedManageAccountID = value
-        Task {
-            await runtime.setSelectedManageAccountID(value)
-        }
     }
 
     func presentAddAccountSheet() {
@@ -77,10 +74,6 @@ final class AppController: ObservableObject {
             return
         }
         sendManageAction(.delete(account.id))
-    }
-
-    func setSidebarMode(_ mode: SidebarMode) {
-        sendManageAction(.sidebarModeChanged(mode))
     }
 
     func switchToAccountFromPopover(_ accountID: String) {
@@ -128,22 +121,13 @@ final class AppController: ObservableObject {
         statusSnapshot = await runtime.currentStatusSnapshot()
         manageSnapshot = await runtime.currentManageSnapshot()
 
-        let reconciled = reconcileSelection(
-            selectedID: selectedManageAccountID,
-            accounts: manageSnapshot.accounts
+        let reconciled = reconcileSelectionID(
+            currentID: selectedManageAccountID,
+            accounts: manageSnapshot.accounts,
+            id: \.id,
+            isActive: \.isActive
         )
         selectedManageAccountID = reconciled
-        await runtime.setSelectedManageAccountID(reconciled)
-    }
-
-    private func reconcileSelection(selectedID: String?, accounts: [ManageAccountItem]) -> String? {
-        if let selectedID, accounts.contains(where: { $0.id == selectedID }) {
-            return selectedID
-        }
-        if let active = accounts.first(where: { $0.isActive }) {
-            return active.id
-        }
-        return accounts.first?.id
     }
 
     private func shouldClosePopover(for command: StatusMenuCommand) -> Bool {

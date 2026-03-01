@@ -28,10 +28,4 @@ final class ManageWindowController: NSWindowController {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
-
-    func closeIfOpen() {
-        if window?.isVisible == true {
-            window?.close()
-        }
-    }
 }

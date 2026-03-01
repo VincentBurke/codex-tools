@@ -33,14 +33,6 @@ let package = Package(
             swiftSettings: [
                 .unsafeFlags(["-warnings-as-errors"])
             ]
-        ),
-        .testTarget(
-            name: "CodexToolsUITests",
-            dependencies: ["CodexToolsCore", "CodexTools"],
-            path: "CodexToolsUITests",
-            swiftSettings: [
-                .unsafeFlags(["-warnings-as-errors"])
-            ]
         )
     ]
 )

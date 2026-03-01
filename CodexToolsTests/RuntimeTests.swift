@@ -7,7 +7,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let account = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
             try domain.setActiveAccount(account.id)
@@ -39,7 +39,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let account = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
             try domain.setActiveAccount(account.id)
@@ -70,7 +70,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let a = try domain.addAccount(.newAPIKey(name: "low", apiKey: "sk-a"))
             let b = try domain.addAccount(.newAPIKey(name: "highest", apiKey: "sk-b"))
@@ -151,7 +151,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let high = try domain.addAccount(.newAPIKey(name: "high", apiKey: "sk-high"))
             let lowLate = try domain.addAccount(.newAPIKey(name: "low-late", apiKey: "sk-late"))
@@ -220,7 +220,7 @@ final class RuntimeTests: XCTestCase {
         try await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
             try await withEnv("CODEX_HOME", tempCodex.path) {
                 let repository = FileStoreRepository()
-                let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+                let domain = StoreDomain(accountsRepository: repository)
 
                 let first = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-1"))
                 let second = try domain.addAccount(.newAPIKey(name: "target", apiKey: "sk-2"))
@@ -249,7 +249,7 @@ final class RuntimeTests: XCTestCase {
 
         await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
             let stable = CodexProcessInfo(count: 0, canSwitch: true, pids: [])
             let processService = SequenceProcessService(results: [.success(stable), .success(stable)])
 
@@ -274,7 +274,7 @@ final class RuntimeTests: XCTestCase {
 
         await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
             let initial = CodexProcessInfo(count: 0, canSwitch: true, pids: [])
             let changed = CodexProcessInfo(count: 1, canSwitch: false, pids: [4242])
             let processService = SequenceProcessService(results: [.success(initial), .success(changed)])
@@ -300,7 +300,7 @@ final class RuntimeTests: XCTestCase {
 
         await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
             let initial = CodexProcessInfo(count: 0, canSwitch: true, pids: [])
             let processService = SequenceProcessService(results: [
                 .success(initial),
@@ -327,7 +327,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let skip = try domain.addAccount(.newAPIKey(name: "skip", apiKey: "sk-skip"))
             let include = try domain.addAccount(.newAPIKey(name: "include", apiKey: "sk-include"))
@@ -385,7 +385,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             let account = try domain.addAccount(.newAPIKey(name: "unknown-reset", apiKey: "sk-unknown"))
             let nowTS = Int64(Date().timeIntervalSince1970)
@@ -423,7 +423,7 @@ final class RuntimeTests: XCTestCase {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
-            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+            let domain = StoreDomain(accountsRepository: repository)
 
             _ = try domain.addAccount(.newAPIKey(name: "first", apiKey: "sk-first"))
             let second = try domain.addAccount(.newAPIKey(name: "second", apiKey: "sk-second"))

@@ -1,7 +1,18 @@
 @testable import CodexToolsCore
+import Darwin
 import XCTest
 
 final class OAuthFormEncodingTests: XCTestCase {
+    func testOAuthListenerRetryClassifierAllowsAddressInUse() {
+        let error = NSError(domain: NSPOSIXErrorDomain, code: Int(EADDRINUSE))
+        XCTAssertTrue(shouldRetryOAuthListenerStart(for: error))
+    }
+
+    func testOAuthListenerRetryClassifierRejectsNonAddressInUse() {
+        let error = NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))
+        XCTAssertFalse(shouldRetryOAuthListenerStart(for: error))
+    }
+
     func testMakeFormURLEncodedBodyPercentEncodesReservedCharacters() throws {
         let body = try makeFormURLEncodedBody(fields: [
             ("code", "a+b&c=d"),

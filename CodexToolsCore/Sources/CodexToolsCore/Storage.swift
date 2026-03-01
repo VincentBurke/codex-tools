@@ -1,6 +1,6 @@
 import Foundation
 
-public final class FileStoreRepository: AccountsStoreRepository, UISettingsRepository, @unchecked Sendable {
+public final class FileStoreRepository: AccountsStoreRepository, @unchecked Sendable {
     public init() {}
 
     public func loadStore() throws -> AccountsStore {
@@ -38,53 +38,6 @@ public final class FileStoreRepository: AccountsStoreRepository, UISettingsRepos
         try setSecurePermissions(fileURL: path)
     }
 
-    public func loadSidebarMode() throws -> SidebarMode {
-        let path = try CodexPaths.uiFile()
-        guard FileManager.default.fileExists(atPath: path.path) else {
-            return .compact
-        }
-
-        struct UISettings: Codable {
-            let sidebarMode: SidebarMode
-
-            enum CodingKeys: String, CodingKey {
-                case sidebarMode = "sidebar_mode"
-            }
-
-            init(from decoder: Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                sidebarMode = try container.decodeIfPresent(SidebarMode.self, forKey: .sidebarMode) ?? .compact
-            }
-
-            init(sidebarMode: SidebarMode) {
-                self.sidebarMode = sidebarMode
-            }
-        }
-
-        let data = try Data(contentsOf: path)
-        let settings = try CodexJSON.makeDecoder().decode(UISettings.self, from: data)
-        return settings.sidebarMode
-    }
-
-    public func saveSidebarMode(_ mode: SidebarMode) throws {
-        struct UISettings: Codable {
-            let sidebarMode: SidebarMode
-
-            enum CodingKeys: String, CodingKey {
-                case sidebarMode = "sidebar_mode"
-            }
-
-            init(sidebarMode: SidebarMode) {
-                self.sidebarMode = sidebarMode
-            }
-        }
-
-        let path = try CodexPaths.uiFile()
-        try ensureParentDirectory(for: path)
-        let data = try CodexJSON.makeEncoder().encode(UISettings(sidebarMode: mode))
-        try data.write(to: path, options: [.atomic])
-        try setSecurePermissions(fileURL: path)
-    }
 }
 
 public func pruneUsageCacheToExistingAccounts(_ store: inout AccountsStore) -> Bool {
@@ -96,14 +49,9 @@ public func pruneUsageCacheToExistingAccounts(_ store: inout AccountsStore) -> B
 
 public final class StoreDomain: @unchecked Sendable {
     private let accountsRepository: AccountsStoreRepository
-    private let uiRepository: UISettingsRepository
 
-    public init(
-        accountsRepository: AccountsStoreRepository,
-        uiRepository: UISettingsRepository
-    ) {
+    public init(accountsRepository: AccountsStoreRepository) {
         self.accountsRepository = accountsRepository
-        self.uiRepository = uiRepository
     }
 
     public func listAccountsInfo() throws -> [AccountInfo] {
@@ -131,14 +79,13 @@ public final class StoreDomain: @unchecked Sendable {
             )
         }
 
-        let cloned = account
         store.accounts.append(account)
         if store.accounts.count == 1 {
-            store.activeAccountID = cloned.id
+            store.activeAccountID = account.id
         }
 
         try accountsRepository.saveStore(store)
-        return cloned
+        return account
     }
 
     public func removeAccount(_ accountID: String) throws {
@@ -254,26 +201,8 @@ public final class StoreDomain: @unchecked Sendable {
         try accountsRepository.saveStore(store)
     }
 
-    public func removeUsageCacheEntry(accountID: String) throws {
-        var store = try accountsRepository.loadStore()
-        store.usageCache.removeValue(forKey: accountID)
-        try accountsRepository.saveStore(store)
-    }
-
     public func loadStore() throws -> AccountsStore {
         try accountsRepository.loadStore()
-    }
-
-    public func saveStore(_ store: AccountsStore) throws {
-        try accountsRepository.saveStore(store)
-    }
-
-    public func loadSidebarMode() throws -> SidebarMode {
-        try uiRepository.loadSidebarMode()
-    }
-
-    public func saveSidebarMode(_ mode: SidebarMode) throws {
-        try uiRepository.saveSidebarMode(mode)
     }
 }
 

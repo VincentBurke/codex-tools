@@ -36,11 +36,6 @@ extension AuthMode: Codable {
     }
 }
 
-public enum SidebarMode: String, Codable, Sendable, CaseIterable {
-    case compact
-    case detailed
-}
-
 public enum AuthData: Sendable, Equatable {
     case apiKey(key: String)
     case chatgpt(

@@ -15,16 +15,6 @@ public final class FileAuthSwitcher: AuthSwitcher, @unchecked Sendable {
         try setSecurePermissions(fileURL: path)
     }
 
-    public func readCurrentAuth() throws -> AuthDotJSON? {
-        let path = try CodexPaths.codexAuthFile()
-        guard FileManager.default.fileExists(atPath: path.path) else {
-            return nil
-        }
-
-        let data = try Data(contentsOf: path)
-        return try CodexJSON.makeDecoder().decode(AuthDotJSON.self, from: data)
-    }
-
     public func importFromAuthJSON(path: String) throws -> StoredAccount {
         let fileURL = URL(fileURLWithPath: path)
         let data = try Data(contentsOf: fileURL)

@@ -309,18 +309,12 @@ struct StatusPopoverView: View {
     }
 
     private func syncSelection() {
-        if let selectedAccountID,
-           accounts.contains(where: { $0.id == selectedAccountID })
-        {
-            return
-        }
-
-        if let active = accounts.first(where: { $0.isActive }) {
-            selectedAccountID = active.id
-            return
-        }
-
-        selectedAccountID = accounts.first?.id
+        selectedAccountID = reconcileSelectionID(
+            currentID: selectedAccountID,
+            accounts: accounts,
+            id: \.id,
+            isActive: \.isActive
+        )
     }
 
     private func rowBackgroundColor(selected: Bool, hovered: Bool, enabled: Bool) -> Color {

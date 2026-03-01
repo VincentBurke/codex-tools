@@ -2,12 +2,6 @@ import CodexToolsCore
 import Foundation
 import SwiftUI
 
-enum UsageDisplayState: Equatable {
-    case healthy(fiveHour: String, weekly: String)
-    case stale(fiveHour: String, weekly: String)
-    case unavailable
-}
-
 enum UsageSeverity: Equatable {
     case healthy
     case low
@@ -16,16 +10,11 @@ enum UsageSeverity: Equatable {
     case unavailable
 }
 
-struct AccountRowDisplayModel: Equatable, Identifiable {
-    let id: String
+struct AccountRowDisplayModel: Equatable {
     let name: String
-    let weeklyResetCountdown: String
-    let fiveHourText: String
     let weeklyText: String
-    let usageState: UsageDisplayState
     let severity: UsageSeverity
     let isActive: Bool
-    let statusChip: String?
     let statusLine: String
 }
 
@@ -34,9 +23,7 @@ struct NextBestRecommendation: Equatable {
     let name: String
     let weeklyText: String
     let fiveHourText: String
-    let statusLine: String
     let severity: UsageSeverity
-    let isStale: Bool
 }
 
 struct ManageRowMetricPresentation: Equatable {
@@ -155,35 +142,6 @@ func usageSeverity(
     return .healthy
 }
 
-func usageDisplayState(
-    fiveHourRemaining: UInt8?,
-    weeklyRemaining: UInt8?,
-    isStale: Bool,
-    usageError: String?
-) -> UsageDisplayState {
-    let severity = usageSeverity(
-        fiveHourRemaining: fiveHourRemaining,
-        weeklyRemaining: weeklyRemaining,
-        isStale: isStale,
-        usageError: usageError
-    )
-
-    switch severity {
-    case .unavailable:
-        return .unavailable
-    case .stale:
-        return .stale(
-            fiveHour: percentLabel(fiveHourRemaining),
-            weekly: percentLabel(weeklyRemaining)
-        )
-    case .healthy, .low, .depleted:
-        return .healthy(
-            fiveHour: percentLabel(fiveHourRemaining),
-            weekly: percentLabel(weeklyRemaining)
-        )
-    }
-}
-
 func makeManageRowHealthPresentation(
     baseSeverity: UsageSeverity,
     weeklyRemaining: UInt8?,
@@ -265,21 +223,6 @@ func severityAccentColor(_ severity: UsageSeverity) -> Color {
     }
 }
 
-func usageStatusChip(_ severity: UsageSeverity) -> String? {
-    switch severity {
-    case .healthy:
-        return nil
-    case .low:
-        return "Low"
-    case .depleted:
-        return "Depleted"
-    case .stale:
-        return "Stale"
-    case .unavailable:
-        return "Unavailable"
-    }
-}
-
 func usageStatusLine(
     fiveHourRemaining: UInt8?,
     weeklyRemaining: UInt8?,
@@ -294,68 +237,72 @@ func usageStatusLine(
     return "5h \(percentLabel(fiveHourRemaining)) · Weekly \(percentLabel(weeklyRemaining))\(staleSuffix)"
 }
 
-func makeManageRowDisplayModel(_ account: ManageAccountItem) -> AccountRowDisplayModel {
+private func makeAccountRowDisplayModel(
+    name: String,
+    isActive: Bool,
+    isStale: Bool,
+    weeklyRemaining: UInt8?,
+    fiveHourRemaining: UInt8?,
+    usageError: String?
+) -> AccountRowDisplayModel {
     let severity = usageSeverity(
-        fiveHourRemaining: account.fiveHourRemaining,
-        weeklyRemaining: account.weeklyRemaining,
-        isStale: account.isStale,
-        usageError: account.usageError
+        fiveHourRemaining: fiveHourRemaining,
+        weeklyRemaining: weeklyRemaining,
+        isStale: isStale,
+        usageError: usageError
     )
 
     return AccountRowDisplayModel(
-        id: account.id,
-        name: account.name,
-        weeklyResetCountdown: account.weeklyResetCountdown ?? "--",
-        fiveHourText: percentLabel(account.fiveHourRemaining),
-        weeklyText: percentLabel(account.weeklyRemaining),
-        usageState: usageDisplayState(
-            fiveHourRemaining: account.fiveHourRemaining,
-            weeklyRemaining: account.weeklyRemaining,
-            isStale: account.isStale,
-            usageError: account.usageError
-        ),
+        name: name,
+        weeklyText: percentLabel(weeklyRemaining),
         severity: severity,
-        isActive: account.isActive,
-        statusChip: usageStatusChip(severity),
+        isActive: isActive,
         statusLine: usageStatusLine(
-            fiveHourRemaining: account.fiveHourRemaining,
-            weeklyRemaining: account.weeklyRemaining,
-            isStale: account.isStale,
-            usageError: account.usageError
+            fiveHourRemaining: fiveHourRemaining,
+            weeklyRemaining: weeklyRemaining,
+            isStale: isStale,
+            usageError: usageError
         )
     )
 }
 
-func makeStatusRowDisplayModel(_ account: StatusAccountEntry) -> AccountRowDisplayModel {
-    let severity = usageSeverity(
-        fiveHourRemaining: account.fiveHourRemaining,
-        weeklyRemaining: account.weeklyRemaining,
+func makeManageRowDisplayModel(_ account: ManageAccountItem) -> AccountRowDisplayModel {
+    makeAccountRowDisplayModel(
+        name: account.name,
+        isActive: account.isActive,
         isStale: account.isStale,
+        weeklyRemaining: account.weeklyRemaining,
+        fiveHourRemaining: account.fiveHourRemaining,
         usageError: account.usageError
     )
+}
 
-    return AccountRowDisplayModel(
-        id: account.id,
+func makeStatusRowDisplayModel(_ account: StatusAccountEntry) -> AccountRowDisplayModel {
+    makeAccountRowDisplayModel(
         name: account.name,
-        weeklyResetCountdown: "--",
-        fiveHourText: percentLabel(account.fiveHourRemaining),
-        weeklyText: percentLabel(account.weeklyRemaining),
-        usageState: usageDisplayState(
-            fiveHourRemaining: account.fiveHourRemaining,
-            weeklyRemaining: account.weeklyRemaining,
-            isStale: account.isStale,
-            usageError: account.usageError
-        ),
-        severity: severity,
         isActive: account.isActive,
-        statusChip: usageStatusChip(severity),
-        statusLine: usageStatusLine(
-            fiveHourRemaining: account.fiveHourRemaining,
-            weeklyRemaining: account.weeklyRemaining,
-            isStale: account.isStale,
-            usageError: account.usageError
-        )
+        isStale: account.isStale,
+        weeklyRemaining: account.weeklyRemaining,
+        fiveHourRemaining: account.fiveHourRemaining,
+        usageError: account.usageError
     )
+}
+
+func reconcileSelectionID<Account>(
+    currentID: String?,
+    accounts: [Account],
+    id: KeyPath<Account, String>,
+    isActive: KeyPath<Account, Bool>
+) -> String? {
+    if let currentID, accounts.contains(where: { $0[keyPath: id] == currentID }) {
+        return currentID
+    }
+
+    if let active = accounts.first(where: { $0[keyPath: isActive] }) {
+        return active[keyPath: id]
+    }
+
+    return accounts.first?[keyPath: id]
 }
 
 func nextSelectionID(currentID: String?, accountIDs: [String], direction: ManageKeyboardCommand) -> String? {
@@ -455,14 +402,7 @@ private func recommendation(from entry: StatusAccountEntry) -> NextBestRecommend
         name: entry.name,
         weeklyText: percentLabel(entry.weeklyRemaining),
         fiveHourText: percentLabel(entry.fiveHourRemaining),
-        statusLine: usageStatusLine(
-            fiveHourRemaining: entry.fiveHourRemaining,
-            weeklyRemaining: entry.weeklyRemaining,
-            isStale: entry.isStale,
-            usageError: entry.usageError
-        ),
-        severity: severity,
-        isStale: entry.isStale
+        severity: severity
     )
 }
 

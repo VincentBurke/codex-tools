@@ -5,14 +5,8 @@ public protocol AccountsStoreRepository: Sendable {
     func saveStore(_ store: AccountsStore) throws
 }
 
-public protocol UISettingsRepository: Sendable {
-    func loadSidebarMode() throws -> SidebarMode
-    func saveSidebarMode(_ mode: SidebarMode) throws
-}
-
 public protocol AuthSwitcher: Sendable {
     func switchToAccount(_ account: StoredAccount) throws
-    func readCurrentAuth() throws -> AuthDotJSON?
     func importFromAuthJSON(path: String) throws -> StoredAccount
 }
 

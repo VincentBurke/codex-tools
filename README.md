@@ -24,5 +24,4 @@ swift run CodexTools
 - `CodexTools/` app target (menu bar shell, AppKit + SwiftUI)
 - `CodexToolsCore/` core domain/runtime/services
 - `CodexToolsTests/` parity test suite
-- `CodexToolsUITests/` UI test target scaffold
 - `docs/` migration artifacts and cutover checklists

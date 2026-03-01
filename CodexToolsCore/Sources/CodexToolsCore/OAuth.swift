@@ -231,6 +231,11 @@ private final class OAuthCallbackServer: @unchecked Sendable {
         do {
             return try await start(on: preferredPort)
         } catch {
+            // Only retry on an ephemeral port when the preferred callback port is occupied.
+            // All other listener startup failures should surface immediately.
+            guard preferredPort != 0, shouldRetryOAuthListenerStart(for: error) else {
+                throw error
+            }
             return try await start(on: 0)
         }
     }
@@ -463,6 +468,22 @@ private final class OAuthCallbackServer: @unchecked Sendable {
             self.continuation = nil
         }
     }
+}
+
+func shouldRetryOAuthListenerStart(for error: Error) -> Bool {
+    if let networkError = error as? NWError {
+        if case .posix(let code) = networkError {
+            return code == .EADDRINUSE
+        }
+        return false
+    }
+
+    if let posixError = error as? POSIXError {
+        return posixError.code == .EADDRINUSE
+    }
+
+    let nsError = error as NSError
+    return nsError.domain == NSPOSIXErrorDomain && nsError.code == Int(EADDRINUSE)
 }
 
 private func generatePKCECodes() -> OAuthPKCECodes {

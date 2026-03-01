@@ -41,7 +41,7 @@ public actor ServiceRuntime {
         processTerminator: (any ProcessTerminator)? = nil
     ) {
         let fileRepository = FileStoreRepository()
-        self.storeDomain = storeDomain ?? StoreDomain(accountsRepository: fileRepository, uiRepository: fileRepository)
+        self.storeDomain = storeDomain ?? StoreDomain(accountsRepository: fileRepository)
         self.authSwitcher = authSwitcher ?? FileAuthSwitcher()
         self.usageClient = usageClient ?? DefaultUsageClient()
         self.oauthClient = oauthClient ?? DefaultOAuthClient()
@@ -60,12 +60,6 @@ public actor ServiceRuntime {
 
         do {
             try loadAccounts(preserveUsage: false)
-        } catch {
-            setError(error.localizedDescription)
-        }
-
-        do {
-            state.sidebarMode = try storeDomain.loadSidebarMode()
         } catch {
             setError(error.localizedDescription)
         }
@@ -118,14 +112,6 @@ public actor ServiceRuntime {
         manageSnapshot
     }
 
-    public func selectedManageAccountID() -> String? {
-        state.selectedAccountID
-    }
-
-    public func setSelectedManageAccountID(_ value: String?) {
-        state.selectedAccountID = value
-    }
-
     public func handleStatusCommand(_ command: StatusMenuCommand) async {
         switch command {
         case .refreshAll:
@@ -144,13 +130,7 @@ public actor ServiceRuntime {
             quitRequested = true
         }
 
-        do {
-            state.processInfo = try processInspector.checkCodexProcesses()
-        } catch {
-            setError(error.localizedDescription)
-        }
-
-        publishSnapshots(now: Date())
+        completeCommandHandling()
     }
 
     public func handleManageAction(_ action: ManageAccountsAction) async {
@@ -170,17 +150,12 @@ public actor ServiceRuntime {
             await handleInlineRename(accountID: id, newName: newName)
         case .delete(let id):
             await handleDeleteAccount(accountID: id)
-        case .sidebarModeChanged(let mode):
-            if state.sidebarMode != mode {
-                state.sidebarMode = mode
-                do {
-                    try storeDomain.saveSidebarMode(mode)
-                } catch {
-                    setError(error.localizedDescription)
-                }
-            }
         }
 
+        completeCommandHandling()
+    }
+
+    private func completeCommandHandling() {
         do {
             state.processInfo = try processInspector.checkCodexProcesses()
         } catch {
@@ -408,13 +383,6 @@ public actor ServiceRuntime {
         }
         state.usageCachedAtUnix = cachedAtByID
 
-        let activeID = state.activeAccountID()
-        switch state.selectedAccountID {
-        case .some(let selected) where state.accounts.contains(where: { $0.account.id == selected }):
-            break
-        default:
-            state.selectedAccountID = activeID ?? state.accounts.first?.account.id
-        }
     }
 
     private func startRefreshAll() async {
@@ -439,7 +407,6 @@ public actor ServiceRuntime {
             }
 
             refreshAllInFlight = true
-            state.refreshingAll = true
             for index in state.accounts.indices where idSet.contains(state.accounts[index].account.id) {
                 state.accounts[index].usageLoading = true
             }
@@ -493,7 +460,6 @@ public actor ServiceRuntime {
 
     private func completeRefreshAll(usageList: [UsageInfo]) async {
         refreshAllInFlight = false
-        state.refreshingAll = false
 
         do {
             try applyUsageUpdates(usageList: usageList)
@@ -624,7 +590,7 @@ public actor ServiceRuntime {
         StatusMenuSnapshot(
             processCount: state.processInfo?.count ?? 0,
             canSwitch: !state.hasRunningProcesses(),
-            isRefreshingUsage: state.refreshingAll || refreshAllInFlight,
+            isRefreshingUsage: refreshAllInFlight,
             accounts: orderedAccountsForDisplay(state.accounts).map { row in
                 StatusAccountEntry(
                     id: row.account.id,
@@ -659,8 +625,7 @@ public actor ServiceRuntime {
                     usageLastRefreshed: state.usageCachedAtUnix[account.account.id].map(formatUsageRefreshed)
                 )
             },
-            canSwitch: !state.hasRunningProcesses(),
-            sidebarMode: state.sidebarMode
+            canSwitch: !state.hasRunningProcesses()
         )
     }
 
