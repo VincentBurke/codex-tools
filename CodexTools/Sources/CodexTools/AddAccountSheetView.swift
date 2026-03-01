@@ -19,84 +19,20 @@ struct AddAccountSheetView: View {
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: UITheme.Spacing.s) {
-            Text("Add Account")
-                .font(UITheme.Font.title)
-
-            Grid(alignment: .leading, horizontalSpacing: UITheme.Spacing.m, verticalSpacing: UITheme.Spacing.s) {
-                GridRow {
-                    formLabel("Mode")
-                    Picker("Mode", selection: $mode) {
-                        ForEach(Mode.allCases) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .accessibilityIdentifier(A11yID.add.mode)
-                }
-
-                if mode == .importAuth {
-                    GridRow {
-                        formLabel("auth.json")
-                        HStack(spacing: UITheme.Spacing.xs) {
-                            TextField("Path to auth.json", text: $path)
-                                .textFieldStyle(.roundedBorder)
-                                .controlSize(.small)
-                                .accessibilityIdentifier(A11yID.add.path)
-
-                            Button("Browse...") {
-                                showingImporter = true
-                            }
-                            .controlSize(.small)
-                            .accessibilityIdentifier(A11yID.add.browse)
-                        }
-                    }
-                }
-            }
+        VStack(alignment: .leading, spacing: UITheme.AddSheet.sectionSpacing) {
+            headerSection
+            modeSection
+            modeSpecificSection
 
             if let validationError {
-                Text(validationError)
-                    .font(UITheme.Font.caption)
-                    .foregroundStyle(.red)
+                validationMessage(validationError)
             }
 
             Divider()
-
-            HStack(spacing: UITheme.Spacing.s) {
-                Spacer()
-
-                Button("Cancel", action: onCancel)
-                    .controlSize(.small)
-                    .keyboardShortcut(.cancelAction)
-                    .accessibilityIdentifier(A11yID.add.cancel)
-
-                if mode == .oauth {
-                    Button("Copy Login Link") {
-                        submitOAuth(.copyLink)
-                    }
-                    .controlSize(.small)
-                    .accessibilityIdentifier(A11yID.add.oauthCopyLink)
-
-                    Button("Open Default Browser") {
-                        submitOAuth(.openDefaultBrowser)
-                    }
-                    .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier(A11yID.add.oauthOpenBrowser)
-                } else {
-                    Button("Add Account") {
-                        submitImportAuth()
-                    }
-                    .controlSize(.small)
-                    .keyboardShortcut(.defaultAction)
-                    .accessibilityIdentifier(A11yID.add.submit)
-                }
-            }
+            footerSection
         }
         .padding(UITheme.Spacing.l)
-        .frame(width: 440)
+        .frame(width: UITheme.AddSheet.width)
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [UTType.json],
@@ -111,11 +47,100 @@ struct AddAccountSheetView: View {
         }
     }
 
-    private func formLabel(_ label: String) -> some View {
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: UITheme.AddSheet.headerSpacing) {
+            Text("Add Account")
+                .font(UITheme.Font.title)
+        }
+    }
+
+    private var modeSection: some View {
+        LabeledContent {
+            Picker("Mode", selection: $mode) {
+                ForEach(Mode.allCases) { mode in
+                    Text(mode.rawValue).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityIdentifier(A11yID.add.mode)
+        } label: {
+            rowLabel("Mode")
+        }
+    }
+
+    @ViewBuilder
+    private var modeSpecificSection: some View {
+        if mode == .oauth {
+            EmptyView()
+        } else {
+            LabeledContent {
+                HStack(spacing: UITheme.Spacing.xs) {
+                    TextField("Path to auth.json", text: $path)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityIdentifier(A11yID.add.path)
+
+                    Button("Browse...") {
+                        showingImporter = true
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier(A11yID.add.browse)
+                }
+            } label: {
+                rowLabel("auth.json")
+            }
+        }
+    }
+
+    private var footerSection: some View {
+        HStack(spacing: UITheme.AddSheet.footerSpacing) {
+            Button("Cancel", action: onCancel)
+                .keyboardShortcut(.cancelAction)
+                .accessibilityIdentifier(A11yID.add.cancel)
+
+            Spacer()
+
+            if mode == .oauth {
+                Button("Copy Link") {
+                    submitOAuth(.copyLink)
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier(A11yID.add.oauthCopyLink)
+
+                Button("Open Browser") {
+                    submitOAuth(.openDefaultBrowser)
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(A11yID.add.oauthOpenBrowser)
+            } else {
+                Button("Add Account") {
+                    submitImportAuth()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier(A11yID.add.submit)
+            }
+        }
+        .controlSize(.regular)
+    }
+
+    private func validationMessage(_ message: String) -> some View {
+        Label {
+            Text(message)
+                .font(UITheme.Font.caption)
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .symbolRenderingMode(.hierarchical)
+        }
+        .foregroundStyle(.red)
+    }
+
+    private func rowLabel(_ label: String) -> some View {
         Text(label)
             .font(UITheme.Font.body)
             .foregroundStyle(.secondary)
-            .frame(width: 72, alignment: .leading)
+            .frame(width: UITheme.AddSheet.labelWidth, alignment: .leading)
     }
 
     private func submitOAuth(_ action: OAuthLoginAction) {

@@ -205,11 +205,16 @@ struct ManageAccountsView: View {
             }
         }
         .contentShape(Rectangle())
+        .simultaneousGesture(
+            TapGesture().onEnded {
+                // Use a simultaneous single-tap recognizer so selection applies immediately
+                // without waiting for the double-click recognizer to fail.
+                controller.setSelectedManageAccountID(account.id)
+            }
+        )
         .onTapGesture(count: 2) {
+            // Double-click toggles row details; single-click selection is handled above.
             toggleExpandedRow(account.id)
-        }
-        .onTapGesture {
-            controller.setSelectedManageAccountID(account.id)
         }
         .contextMenu {
             Button("Rename") {

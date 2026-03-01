@@ -33,6 +33,14 @@ enum UITheme {
         static let hoverFillOpacity: CGFloat = 0.28
     }
 
+    enum AddSheet {
+        static let width: CGFloat = 500
+        static let sectionSpacing: CGFloat = 12
+        static let headerSpacing: CGFloat = 4
+        static let footerSpacing: CGFloat = 8
+        static let labelWidth: CGFloat = 86
+    }
+
     enum Font {
         static let title = SwiftUI.Font.system(size: 15, weight: .semibold)
         static let body = SwiftUI.Font.system(size: 13, weight: .regular)
