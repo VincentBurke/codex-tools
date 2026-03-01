@@ -188,16 +188,16 @@ private func runCommand(_ command: String, _ args: [String]) throws -> CommandOu
     process.executableURL = URL(fileURLWithPath: command)
     process.arguments = args
 
-    let stdoutPipe = Pipe()
-    let stderrPipe = Pipe()
-    process.standardOutput = stdoutPipe
-    process.standardError = stderrPipe
+    // Use a single drained pipe and read to EOF before waiting. This avoids
+    // deadlocks when command output is large enough to fill pipe buffers.
+    let outputPipe = Pipe()
+    process.standardOutput = outputPipe
+    process.standardError = outputPipe
 
     try process.run()
+    let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
     process.waitUntilExit()
+    let combined = String(data: outputData, encoding: .utf8) ?? ""
 
-    let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-    let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-
-    return CommandOutput(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+    return CommandOutput(status: process.terminationStatus, stdout: combined, stderr: combined)
 }

@@ -70,15 +70,11 @@ public actor ServiceRuntime {
             setError(error.localizedDescription)
         }
 
-        _ = await refreshActiveAccountBackground()
-
-        do {
-            state.processInfo = try processInspector.checkCodexProcesses()
-        } catch {
-            setError(error.localizedDescription)
-        }
-
         publishSnapshots(now: Date())
+        // Boot must publish stored accounts immediately; active usage refresh is network-bound
+        // and can stall for long periods on bad connectivity or endpoint hangs.
+        startProcessCheckAfterBoot()
+        startActiveUsageRefreshAfterBoot()
     }
 
     public func tick(now: Date = Date()) async -> RuntimeTickOutput {
@@ -195,6 +191,13 @@ public actor ServiceRuntime {
     }
 
     private func handleSwitchAccount(_ accountID: String) async {
+        do {
+            state.processInfo = try processInspector.checkCodexProcesses()
+        } catch {
+            setError(error.localizedDescription)
+            return
+        }
+
         let isActive = state.activeAccountID() == accountID
         if state.hasRunningProcesses() && !isActive {
             setError("Cannot switch account while Codex processes are running")
@@ -350,6 +353,26 @@ public actor ServiceRuntime {
             _ = try await refreshSingleUsageAutomatic(accountID: activeID)
         } catch {
             setError(error.localizedDescription)
+        }
+    }
+
+    private func startActiveUsageRefreshAfterBoot() {
+        Task {
+            let changed = await self.refreshActiveAccountBackground()
+            if changed {
+                self.publishSnapshots(now: Date())
+            }
+        }
+    }
+
+    private func startProcessCheckAfterBoot() {
+        Task {
+            do {
+                self.state.processInfo = try self.processInspector.checkCodexProcesses()
+            } catch {
+                self.setError(error.localizedDescription)
+            }
+            self.publishSnapshots(now: Date())
         }
     }
 

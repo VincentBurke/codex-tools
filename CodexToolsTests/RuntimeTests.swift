@@ -3,6 +3,69 @@ import Foundation
 import XCTest
 
 final class RuntimeTests: XCTestCase {
+    func testBootPublishesAccountsWithoutWaitingForProcessCheck() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+
+            let account = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
+            try domain.setActiveAccount(account.id)
+
+            let slowProcessService = SlowProcessService(delaySeconds: 1.5, processCount: 0)
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: slowProcessService,
+                processTerminator: slowProcessService
+            )
+
+            let start = Date()
+            await runtime.boot()
+            let elapsed = Date().timeIntervalSince(start)
+
+            let statusSnapshot = await runtime.currentStatusSnapshot()
+            let manageSnapshot = await runtime.currentManageSnapshot()
+
+            XCTAssertLessThan(elapsed, 0.5)
+            XCTAssertEqual(statusSnapshot.accounts.count, 1)
+            XCTAssertEqual(manageSnapshot.accounts.count, 1)
+        }
+    }
+
+    func testBootPublishesAccountsWithoutWaitingForActiveUsageRefresh() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository, uiRepository: repository)
+
+            let account = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
+            try domain.setActiveAccount(account.id)
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: SlowErrorUsageClient(delayNanoseconds: 2_000_000_000),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            let start = Date()
+            await runtime.boot()
+            let elapsed = Date().timeIntervalSince(start)
+
+            let statusSnapshot = await runtime.currentStatusSnapshot()
+            let manageSnapshot = await runtime.currentManageSnapshot()
+
+            XCTAssertLessThan(elapsed, 1.0)
+            XCTAssertEqual(statusSnapshot.accounts.count, 1)
+            XCTAssertEqual(manageSnapshot.accounts.count, 1)
+        }
+    }
+
     func testManageSnapshotSortsByWeeklyRemainingDescending() async throws {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
@@ -405,6 +468,19 @@ private struct StubUsageClient: UsageClient {
     }
 }
 
+private struct SlowErrorUsageClient: UsageClient {
+    let delayNanoseconds: UInt64
+
+    func getUsage(for account: StoredAccount) async throws -> UsageInfo {
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+        return UsageInfo.error(accountID: account.id, message: "stub delayed")
+    }
+
+    func refreshAllUsage(accounts: [StoredAccount]) async -> [UsageInfo] {
+        []
+    }
+}
+
 private actor StubOAuthClient: OAuthClient {
     func startLogin(action: OAuthLoginAction) async throws -> OAuthLoginInfo {
         OAuthLoginInfo(authURL: "https://example.com", callbackPort: 1455)
@@ -422,6 +498,25 @@ private struct StubProcessService: ProcessInspector, ProcessTerminator {
 
     func checkCodexProcesses() throws -> CodexProcessInfo {
         CodexProcessInfo(count: processCount, canSwitch: processCount == 0, pids: processCount == 0 ? [] : [9999])
+    }
+
+    func terminateCodexProcesses() throws -> Int {
+        processCount
+    }
+}
+
+private final class SlowProcessService: ProcessInspector, ProcessTerminator, @unchecked Sendable {
+    private let delaySeconds: TimeInterval
+    private let processCount: Int
+
+    init(delaySeconds: TimeInterval, processCount: Int) {
+        self.delaySeconds = delaySeconds
+        self.processCount = processCount
+    }
+
+    func checkCodexProcesses() throws -> CodexProcessInfo {
+        Thread.sleep(forTimeInterval: delaySeconds)
+        return CodexProcessInfo(count: processCount, canSwitch: processCount == 0, pids: processCount == 0 ? [] : [9999])
     }
 
     func terminateCodexProcesses() throws -> Int {

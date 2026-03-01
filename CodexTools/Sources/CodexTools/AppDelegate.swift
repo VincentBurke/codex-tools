@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func setupStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "CS"
+        item.button?.title = "CT"
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
         statusItem = item

@@ -59,6 +59,7 @@ public final class DefaultUsageClient: UsageClient, @unchecked Sendable {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
+        request.timeoutInterval = 15
         request.setValue("codex-cli/1.0.0", forHTTPHeaderField: "User-Agent")
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         if let chatGPTAccountID, !chatGPTAccountID.isEmpty {
