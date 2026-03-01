@@ -80,47 +80,6 @@ final class StorageTests: XCTestCase {
         }
     }
 
-    func testMigratesLegacySwitcherFilesOnFirstLoad() throws {
-        let current = try makeTempDirectory()
-        let legacy = try makeTempDirectory()
-
-        let legacyAccount = StoredAccount.newAPIKey(name: "Legacy", apiKey: "sk-legacy")
-        let legacyStore = AccountsStore(
-            version: accountsStoreVersion,
-            accounts: [legacyAccount],
-            activeAccountID: legacyAccount.id,
-            usageCache: [:]
-        )
-        let legacyStoreData = try CodexJSON.makeEncoder().encode(legacyStore)
-        try legacyStoreData.write(to: legacy.appendingPathComponent("accounts.json"))
-        try "{\"sidebar_mode\":\"detailed\"}".data(using: .utf8).unwrap().write(
-            to: legacy.appendingPathComponent("ui.json")
-        )
-
-        try withEnv("CODEX_TOOLS_HOME", current.path) {
-            try withEnv("CODEX_SWITCHER_HOME", legacy.path) {
-                let repository = FileStoreRepository()
-
-                let store = try repository.loadStore()
-                XCTAssertEqual(store.accounts.count, 1)
-                XCTAssertEqual(store.accounts.first?.id, legacyAccount.id)
-                XCTAssertEqual(store.activeAccountID, legacyAccount.id)
-                XCTAssertTrue(
-                    FileManager.default.fileExists(
-                        atPath: current.appendingPathComponent("accounts.json").path
-                    )
-                )
-
-                XCTAssertEqual(try repository.loadSidebarMode(), .detailed)
-                XCTAssertTrue(
-                    FileManager.default.fileExists(
-                        atPath: current.appendingPathComponent("ui.json").path
-                    )
-                )
-            }
-        }
-    }
-
     func testUsageCachePersistsAndLoads() throws {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {

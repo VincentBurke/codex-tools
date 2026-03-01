@@ -4,10 +4,6 @@ public final class FileStoreRepository: AccountsStoreRepository, UISettingsRepos
     public init() {}
 
     public func loadStore() throws -> AccountsStore {
-        // Hard-cutover migration: move persisted state from codex-switcher path
-        // into codex-tools path once, so renamed installs keep existing accounts.
-        try migrateLegacyFilesIfNeeded()
-
         let path = try CodexPaths.accountsFile()
         guard FileManager.default.fileExists(atPath: path.path) else {
             return AccountsStore()
@@ -43,8 +39,6 @@ public final class FileStoreRepository: AccountsStoreRepository, UISettingsRepos
     }
 
     public func loadSidebarMode() throws -> SidebarMode {
-        try migrateLegacyFilesIfNeeded()
-
         let path = try CodexPaths.uiFile()
         guard FileManager.default.fileExists(atPath: path.path) else {
             return .compact
@@ -90,41 +84,6 @@ public final class FileStoreRepository: AccountsStoreRepository, UISettingsRepos
         let data = try CodexJSON.makeEncoder().encode(UISettings(sidebarMode: mode))
         try data.write(to: path, options: [.atomic])
         try setSecurePermissions(fileURL: path)
-    }
-
-    private func migrateLegacyFilesIfNeeded() throws {
-        let env = ProcessInfo.processInfo.environment
-        let hasCurrentOverride = !(env["CODEX_TOOLS_HOME"] ?? "").isEmpty
-        let hasLegacyOverride = !(env["CODEX_SWITCHER_HOME"] ?? "").isEmpty
-
-        // If callers pin CODEX_TOOLS_HOME explicitly, do not silently pull
-        // state from the default legacy directory. Explicit legacy override
-        // remains supported for intentional migration.
-        if hasCurrentOverride && !hasLegacyOverride {
-            return
-        }
-
-        let fileManager = FileManager.default
-
-        let currentAccounts = try CodexPaths.accountsFile()
-        if !fileManager.fileExists(atPath: currentAccounts.path) {
-            let legacyAccounts = try CodexPaths.legacyAccountsFile()
-            if fileManager.fileExists(atPath: legacyAccounts.path) {
-                try ensureParentDirectory(for: currentAccounts)
-                try fileManager.copyItem(at: legacyAccounts, to: currentAccounts)
-                try setSecurePermissions(fileURL: currentAccounts)
-            }
-        }
-
-        let currentUI = try CodexPaths.uiFile()
-        if !fileManager.fileExists(atPath: currentUI.path) {
-            let legacyUI = try CodexPaths.legacyUIFile()
-            if fileManager.fileExists(atPath: legacyUI.path) {
-                try ensureParentDirectory(for: currentUI)
-                try fileManager.copyItem(at: legacyUI, to: currentUI)
-                try setSecurePermissions(fileURL: currentUI)
-            }
-        }
     }
 }
 
