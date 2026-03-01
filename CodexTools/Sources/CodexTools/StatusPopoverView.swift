@@ -95,7 +95,7 @@ struct StatusPopoverView: View {
                 }
 
                 if !controller.statusSnapshot.canSwitch {
-                    Text("Switching blocked while Codex processes are running.")
+                    Text("Cannot switch accounts while Codex is running.")
                         .font(UITheme.Font.caption)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier(A11yID.popover.nextBestUnavailable)

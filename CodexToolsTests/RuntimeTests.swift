@@ -66,7 +66,7 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
-    func testManageSnapshotSortsByWeeklyRemainingDescending() async throws {
+    func testSnapshotsKeepActiveAccountFirstThenSortByWeeklyRemaining() async throws {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
             let repository = FileStoreRepository()
@@ -139,8 +139,11 @@ final class RuntimeTests: XCTestCase {
                 processTerminator: StubProcessService(processCount: 0)
             )
             await runtime.boot()
-            let snapshot = await runtime.currentManageSnapshot()
-            XCTAssertEqual(snapshot.accounts.map(\.name), ["highest", "middle", "low"])
+            let manageSnapshot = await runtime.currentManageSnapshot()
+            XCTAssertEqual(manageSnapshot.accounts.map(\.name), ["low", "highest", "middle"])
+
+            let statusSnapshot = await runtime.currentStatusSnapshot()
+            XCTAssertEqual(statusSnapshot.accounts.map(\.name), ["low", "highest", "middle"])
         }
     }
 

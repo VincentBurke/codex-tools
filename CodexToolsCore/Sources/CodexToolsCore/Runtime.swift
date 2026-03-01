@@ -688,6 +688,7 @@ public actor ServiceRuntime {
 private struct DisplayOrderKey {
     let row: AccountWithUsage
     let index: Int
+    let isActive: Bool
     let weeklyRemaining: UInt8?
     let weeklyResetAtUnix: Int64?
     let isLowWeekly: Bool
@@ -699,6 +700,7 @@ private func orderedAccountsForDisplay(_ accounts: [AccountWithUsage]) -> [Accou
         return DisplayOrderKey(
             row: row,
             index: index,
+            isActive: row.account.isActive,
             weeklyRemaining: weeklyRemaining,
             weeklyResetAtUnix: row.usage?.secondaryResetsAt,
             isLowWeekly: weeklyRemaining.map { Double($0) <= weeklyRefreshAllSkipThresholdPercent } ?? false
@@ -707,6 +709,12 @@ private func orderedAccountsForDisplay(_ accounts: [AccountWithUsage]) -> [Accou
 
     return keyed
         .sorted(by: { a, b in
+            // Keep the active account pinned first so both the menubar and manage window
+            // remain anchored on the current account regardless of usage-based ranking.
+            if a.isActive != b.isActive {
+                return a.isActive
+            }
+
             if a.isLowWeekly && b.isLowWeekly {
                 // In the low-weekly bucket, prioritize accounts that reset sooner over raw percentage.
                 switch (a.weeklyResetAtUnix, b.weeklyResetAtUnix) {
