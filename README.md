@@ -2,6 +2,9 @@
 
 Native swift macOS menu bar app for managing multiple Codex auth sessions.
 
+<img width="388" height="416" alt="image" src="https://github.com/user-attachments/assets/d5429823-9a61-4dd3-a3e6-63d5c8231385" />
+
+
 ## Features
 
 - Menu bar switching for active accounts
