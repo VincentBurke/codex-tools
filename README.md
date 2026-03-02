@@ -32,17 +32,29 @@ brew tap VincentBurke/tap
 brew install codex-tools
 ```
 
-Start the app with Homebrew services:
+Start at login (recommended):
 
 ```bash
 brew services start codex-tools
 ```
 
-Stop it:
+Stop background launch-at-login behavior:
 
 ```bash
 brew services stop codex-tools
 ```
+
+Start once for the current session (no launchd service management):
+
+```bash
+codex-tools
+```
+
+### Quit Behavior When Started Via `brew services`
+
+- Choosing `Quit codex-tools` from the menu should exit the app and keep it stopped for the current login session.
+- If the process crashes, launchd should restart it automatically.
+- To disable launch-at-login entirely, run `brew services stop codex-tools`.
 
 ## Configuration
 
