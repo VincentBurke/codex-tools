@@ -116,6 +116,7 @@ final class AppController: ObservableObject {
                 return
             }
             while !Task.isCancelled {
+                let tickStartedAt = Date()
                 let output = await runtime.tick()
                 handleTickOutput(output)
                 if output.shouldQuit {
@@ -123,7 +124,11 @@ final class AppController: ObservableObject {
                 }
 
                 do {
-                    try await Task.sleep(nanoseconds: nanoseconds(for: output.nextTickDelaySeconds))
+                    // Runtime delay is computed from tick-start timestamps. Subtracting the tick
+                    // execution time prevents steady drift that otherwise makes active UI feel laggy.
+                    let elapsed = Date().timeIntervalSince(tickStartedAt)
+                    let remainingDelay = max(0, output.nextTickDelaySeconds - elapsed)
+                    try await Task.sleep(nanoseconds: nanoseconds(for: remainingDelay))
                 } catch {
                     return
                 }

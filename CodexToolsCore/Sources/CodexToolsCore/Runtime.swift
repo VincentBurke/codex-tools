@@ -3,7 +3,7 @@ import Foundation
 public let SERVICE_STALE_THRESHOLD_SECONDS: Int64 = 15 * 60
 
 private let oauthPollInterval: TimeInterval = 1
-private let processCheckIntervalInteractive: TimeInterval = 3
+private let processCheckIntervalInteractive: TimeInterval = 1
 private let activeRefreshInterval: TimeInterval = 15 * 60
 private let snapshotPublishIntervalInteractive: TimeInterval = 60
 private let snapshotPublishIntervalIdle: TimeInterval = 300

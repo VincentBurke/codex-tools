@@ -518,14 +518,14 @@ final class RuntimeTests: XCTestCase {
             let baseline = processService.checkCount()
             let baseNow = Date()
 
-            _ = await runtime.tick(now: baseNow.addingTimeInterval(4))
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(1.1))
             let afterFirstPeriodicCheck = processService.checkCount()
             XCTAssertEqual(afterFirstPeriodicCheck, baseline + 1)
 
-            _ = await runtime.tick(now: baseNow.addingTimeInterval(6))
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(1.8))
             XCTAssertEqual(processService.checkCount(), afterFirstPeriodicCheck)
 
-            _ = await runtime.tick(now: baseNow.addingTimeInterval(7.2))
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(2.2))
             XCTAssertEqual(processService.checkCount(), afterFirstPeriodicCheck + 1)
         }
     }
