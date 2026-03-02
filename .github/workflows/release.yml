@@ -1,0 +1,257 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: swift build -c release
+
+      - name: Package release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.meta.outputs.version }}"
+          arch="${{ matrix.arch }}"
+          tarball="codex-tools-${version}-${arch}.tar.gz"
+
+          mkdir -p dist
+          cp .build/release/CodexTools dist/codex-tools
+          chmod +x dist/codex-tools
+
+          tar -C dist -czf "$tarball" codex-tools
+          shasum -a 256 "$tarball" > "${tarball}.sha256"
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.arch }}
+          path: |
+            codex-tools-${{ steps.meta.outputs.version }}-${{ matrix.arch }}.tar.gz
+            codex-tools-${{ steps.meta.outputs.version }}-${{ matrix.arch }}.tar.gz.sha256
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      arm64_sha: ${{ steps.shas.outputs.arm64_sha }}
+      x86_64_sha: ${{ steps.shas.outputs.x86_64_sha }}
+
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Derive release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          if [[ ! "$version" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.meta.outputs.tag }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber
+          else
+            gh release create "$tag" release-assets/* --generate-notes --title "$tag"
+          fi
+
+      - name: Read archive checksums
+        id: shas
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.meta.outputs.version }}"
+          arm_file="release-assets/codex-tools-${version}-arm64.tar.gz.sha256"
+          intel_file="release-assets/codex-tools-${version}-x86_64.tar.gz.sha256"
+
+          if [[ ! -f "$arm_file" || ! -f "$intel_file" ]]; then
+            echo "Missing checksum files in release-assets directory." >&2
+            ls -la release-assets
+            exit 1
+          fi
+
+          arm_sha="$(awk '{print $1}' "$arm_file")"
+          intel_sha="$(awk '{print $1}' "$intel_file")"
+
+          echo "arm64_sha=$arm_sha" >> "$GITHUB_OUTPUT"
+          echo "x86_64_sha=$intel_sha" >> "$GITHUB_OUTPUT"
+
+  update-homebrew-tap:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    needs: publish-release
+    permissions:
+      contents: read
+    env:
+      TAP_REPO: VincentBurke/homebrew-tap
+      FORMULA_PATH: Formula/codex-tools.rb
+
+    steps:
+      - name: Validate tap token
+        if: ${{ secrets.HOMEBREW_TAP_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "Missing required HOMEBREW_TAP_TOKEN secret." >&2
+          exit 1
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Detect default branch
+        id: tap-meta
+        working-directory: tap
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch="$(gh api "repos/${TAP_REPO}" --jq ".default_branch")"
+          git checkout "$default_branch"
+          echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Write formula
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.publish-release.outputs.version }}
+          TAG: ${{ needs.publish-release.outputs.tag }}
+          ARM64_SHA: ${{ needs.publish-release.outputs.arm64_sha }}
+          X86_64_SHA: ${{ needs.publish-release.outputs.x86_64_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p Formula
+          cat > "$FORMULA_PATH" <<EOF
+          class CodexTools < Formula
+            desc "Native macOS menu bar app for managing multiple Codex auth sessions"
+            homepage "https://github.com/VincentBurke/codex-tools"
+            version "${VERSION}"
+            depends_on macos: :sonoma
+
+            on_arm do
+              url "https://github.com/VincentBurke/codex-tools/releases/download/${TAG}/codex-tools-${VERSION}-arm64.tar.gz"
+              sha256 "${ARM64_SHA}"
+            end
+
+            on_intel do
+              url "https://github.com/VincentBurke/codex-tools/releases/download/${TAG}/codex-tools-${VERSION}-x86_64.tar.gz"
+              sha256 "${X86_64_SHA}"
+            end
+
+            def install
+              bin.install "codex-tools"
+            end
+
+            service do
+              run [opt_bin/"codex-tools"]
+              keep_alive true
+              run_type :immediate
+            end
+
+            test do
+              assert_predicate bin/"codex-tools", :exist?
+            end
+
+            def caveats
+              <<~EOS
+                Start the menu bar app:
+                  brew services start codex-tools
+
+                Stop it:
+                  brew services stop codex-tools
+              EOS
+            end
+          end
+          EOF
+
+      - name: Commit and push formula update
+        working-directory: tap
+        env:
+          VERSION: ${{ needs.publish-release.outputs.version }}
+          DEFAULT_BRANCH: ${{ steps.tap-meta.outputs.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [[ -z "$(git status --porcelain -- "$FORMULA_PATH")" ]]; then
+            echo "No formula changes detected."
+            exit 0
+          fi
+
+          git add "$FORMULA_PATH"
+          git commit -m "chore(brew): update codex-tools to v${VERSION}"
+          git push origin "HEAD:${DEFAULT_BRANCH}"

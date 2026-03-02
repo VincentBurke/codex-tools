@@ -25,6 +25,25 @@ swift run CodexTools
 
 Or open `CodexTools.xcodeproj` and run the `CodexTools` target.
 
+## Install (Homebrew)
+
+```bash
+brew tap VincentBurke/tap
+brew install codex-tools
+```
+
+Start the app with Homebrew services:
+
+```bash
+brew services start codex-tools
+```
+
+Stop it:
+
+```bash
+brew services stop codex-tools
+```
+
 ## Configuration
 
 - `CODEX_HOME` (default: `~/.codex`)
@@ -40,6 +59,17 @@ swift test
 ```
 
 This project treats warnings as errors in SwiftPM targets.
+
+## Release
+
+Push a `v*` tag to build release archives, create/update a GitHub release, and update the Homebrew formula in `VincentBurke/homebrew-tap`.
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+For release prerequisites and troubleshooting, see `docs/releasing.md`.
 
 ## Project Layout
 
