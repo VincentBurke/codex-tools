@@ -227,6 +227,7 @@ jobs:
               run [opt_bin/"codex-tools"]
               keep_alive true
               run_type :immediate
+              process_type :interactive
             end
 
             test do
