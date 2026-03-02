@@ -168,24 +168,27 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout tap repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.TAP_REPO }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-
       - name: Detect default branch
         id: tap-meta
-        working-directory: tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           default_branch="$(gh api "repos/${TAP_REPO}" --jq ".default_branch")"
-          git checkout "$default_branch"
+          if [[ -z "${default_branch:-}" ]]; then
+            echo "Unable to determine default branch for ${TAP_REPO}." >&2
+            exit 1
+          fi
           echo "default_branch=$default_branch" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TAP_REPO }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+          ref: ${{ steps.tap-meta.outputs.default_branch }}
 
       - name: Write formula
         working-directory: tap
