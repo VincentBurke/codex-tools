@@ -42,6 +42,9 @@ struct StatusPopoverView: View {
         .onChange(of: controller.statusSnapshot.accounts) { _, _ in
             syncSelection()
         }
+        .onChange(of: controller.statusSnapshot.canSwitch) { _, _ in
+            syncSelection()
+        }
     }
 
     private var header: some View {
@@ -309,8 +312,11 @@ struct StatusPopoverView: View {
     }
 
     private func syncSelection() {
+        // When switching is blocked we force-highlight the active account so the selection
+        // cannot point at a row the user cannot actually switch to.
+        let currentSelection = controller.statusSnapshot.canSwitch ? selectedAccountID : nil
         selectedAccountID = reconcileSelectionID(
-            currentID: selectedAccountID,
+            currentID: currentSelection,
             accounts: accounts,
             id: \.id,
             isActive: \.isActive
