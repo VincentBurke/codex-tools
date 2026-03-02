@@ -3,9 +3,11 @@ import Foundation
 public let SERVICE_STALE_THRESHOLD_SECONDS: Int64 = 15 * 60
 
 private let oauthPollInterval: TimeInterval = 1
-private let processCheckInterval: TimeInterval = 3
+private let processCheckIntervalInteractive: TimeInterval = 3
 private let activeRefreshInterval: TimeInterval = 15 * 60
-private let snapshotPublishInterval: TimeInterval = 30
+private let snapshotPublishIntervalInteractive: TimeInterval = 60
+private let snapshotPublishIntervalIdle: TimeInterval = 300
+private let minimumTickDelaySeconds: TimeInterval = 0.05
 private let weeklyRefreshPauseThresholdPercent: Double = 1.0
 private let weeklyRefreshAllSkipThresholdPercent: Double = 3.0
 
@@ -25,10 +27,13 @@ public actor ServiceRuntime {
     private var lastProcessCheck = Date()
     private var lastActiveRefresh = Date()
     private var lastSnapshotPublish = Date()
+    private var monitoringMode: RuntimeMonitoringMode = .idle
     private var quitRequested = false
 
     private var statusSnapshot = StatusMenuSnapshot()
     private var manageSnapshot = ManageAccountsWindowSnapshot()
+    private var snapshotRevision: UInt64 = 0
+    private var snapshotSubscribers: [UUID: AsyncStream<UInt64>.Continuation] = [:]
 
     private var pendingErrorForUI: String?
 
@@ -74,12 +79,12 @@ public actor ServiceRuntime {
     public func tick(now: Date = Date()) async -> RuntimeTickOutput {
         var changed = false
 
-        if now.timeIntervalSince(lastOAuthPoll) >= oauthPollInterval {
+        if state.hasPendingOAuth, now.timeIntervalSince(lastOAuthPoll) >= oauthPollInterval {
             lastOAuthPoll = now
             changed = await pollOAuthBackground() || changed
         }
 
-        if now.timeIntervalSince(lastProcessCheck) >= processCheckInterval {
+        if monitoringMode == .interactive, now.timeIntervalSince(lastProcessCheck) >= processCheckIntervalInteractive {
             lastProcessCheck = now
             changed = await checkProcessesBackground() || changed
         }
@@ -89,7 +94,7 @@ public actor ServiceRuntime {
             changed = await refreshActiveAccountBackground() || changed
         }
 
-        if changed || now.timeIntervalSince(lastSnapshotPublish) >= snapshotPublishInterval {
+        if changed || now.timeIntervalSince(lastSnapshotPublish) >= snapshotPublishInterval(for: monitoringMode) {
             publishSnapshots(now: now)
             changed = true
         }
@@ -100,8 +105,31 @@ public actor ServiceRuntime {
         return RuntimeTickOutput(
             shouldQuit: quitRequested,
             snapshotsChanged: changed,
-            surfacedError: surfacedError
+            surfacedError: surfacedError,
+            nextTickDelaySeconds: nextTickDelaySeconds(now: now)
         )
+    }
+
+    public func setMonitoringMode(_ mode: RuntimeMonitoringMode) {
+        guard monitoringMode != mode else {
+            return
+        }
+        monitoringMode = mode
+        if mode == .interactive {
+            // Entering interactive mode should run a process check on the next tick
+            // so switch safety state is fresh when the user opens UI surfaces.
+            lastProcessCheck = .distantPast
+        }
+    }
+
+    public func subscribeSnapshots() -> AsyncStream<UInt64> {
+        let subscriptionID = UUID()
+        return AsyncStream { continuation in
+            Task { self.addSnapshotSubscriber(id: subscriptionID, continuation: continuation) }
+            continuation.onTermination = { [runtime = self] _ in
+                Task { await runtime.removeSnapshotSubscriber(id: subscriptionID) }
+            }
+        }
     }
 
     public func currentStatusSnapshot() -> StatusMenuSnapshot {
@@ -584,6 +612,10 @@ public actor ServiceRuntime {
         statusSnapshot = makeStatusSnapshot(nowTS: nowTS)
         manageSnapshot = makeManageSnapshot(nowTS: nowTS)
         lastSnapshotPublish = now
+        snapshotRevision &+= 1
+        for continuation in snapshotSubscribers.values {
+            continuation.yield(snapshotRevision)
+        }
     }
 
     private func makeStatusSnapshot(nowTS: Int64) -> StatusMenuSnapshot {
@@ -647,6 +679,48 @@ public actor ServiceRuntime {
 
     private func setError(_ message: String) {
         pendingErrorForUI = message
+    }
+
+    private func addSnapshotSubscriber(id: UUID, continuation: AsyncStream<UInt64>.Continuation) {
+        snapshotSubscribers[id] = continuation
+        continuation.yield(snapshotRevision)
+    }
+
+    private func removeSnapshotSubscriber(id: UUID) {
+        snapshotSubscribers.removeValue(forKey: id)
+    }
+
+    private func nextTickDelaySeconds(now: Date) -> TimeInterval {
+        var delays: [TimeInterval] = []
+        if state.hasPendingOAuth {
+            delays.append(remainingInterval(now: now, since: lastOAuthPoll, interval: oauthPollInterval))
+        }
+        if monitoringMode == .interactive {
+            delays.append(remainingInterval(now: now, since: lastProcessCheck, interval: processCheckIntervalInteractive))
+        }
+        delays.append(remainingInterval(now: now, since: lastActiveRefresh, interval: activeRefreshInterval))
+        delays.append(
+            remainingInterval(
+                now: now,
+                since: lastSnapshotPublish,
+                interval: snapshotPublishInterval(for: monitoringMode)
+            )
+        )
+
+        return max(minimumTickDelaySeconds, delays.min() ?? oauthPollInterval)
+    }
+
+    private func remainingInterval(now: Date, since previous: Date, interval: TimeInterval) -> TimeInterval {
+        max(0, interval - now.timeIntervalSince(previous))
+    }
+
+    private func snapshotPublishInterval(for mode: RuntimeMonitoringMode) -> TimeInterval {
+        switch mode {
+        case .idle:
+            return snapshotPublishIntervalIdle
+        case .interactive:
+            return snapshotPublishIntervalInteractive
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import AppKit
+import CodexToolsCore
 import SwiftUI
 
 @MainActor
@@ -10,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var localClickMonitor: Any?
     private var globalClickMonitor: Any?
     private var manageWindowController: ManageWindowController?
+    private var isPopoverVisible = false
+    private var isManageWindowVisible = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -33,6 +36,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 self?.closePopover()
             }
         }
+
+        updateRuntimeMonitoringMode()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -75,6 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        isPopoverVisible = true
+        updateRuntimeMonitoringMode()
         installPopoverClickMonitors()
     }
 
@@ -92,17 +99,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(nil)
         }
         removePopoverClickMonitors()
+        if isPopoverVisible {
+            isPopoverVisible = false
+            updateRuntimeMonitoringMode()
+        }
     }
 
     private func showManageWindow() {
         if manageWindowController == nil {
-            manageWindowController = ManageWindowController(controller: controller)
+            manageWindowController = ManageWindowController(
+                controller: controller,
+                onVisibilityChanged: { [weak self] visible in
+                    guard let self else {
+                        return
+                    }
+                    self.isManageWindowVisible = visible
+                    self.updateRuntimeMonitoringMode()
+                }
+            )
         }
         manageWindowController?.showOrFocus()
     }
 
     func popoverDidClose(_ notification: Notification) {
         removePopoverClickMonitors()
+        if isPopoverVisible {
+            isPopoverVisible = false
+            updateRuntimeMonitoringMode()
+        }
     }
 
     private func installPopoverClickMonitors() {
@@ -178,5 +202,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return window.convertPoint(toScreen: event.locationInWindow)
         }
         return event.locationInWindow
+    }
+
+    private func updateRuntimeMonitoringMode() {
+        let mode: RuntimeMonitoringMode = (isPopoverVisible || isManageWindowVisible) ? .interactive : .idle
+        controller.setMonitoringMode(mode)
     }
 }

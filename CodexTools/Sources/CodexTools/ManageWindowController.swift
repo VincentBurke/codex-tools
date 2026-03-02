@@ -1,8 +1,11 @@
 import AppKit
 import SwiftUI
 
-final class ManageWindowController: NSWindowController {
-    init(controller: AppController) {
+final class ManageWindowController: NSWindowController, NSWindowDelegate {
+    private let onVisibilityChanged: (Bool) -> Void
+
+    init(controller: AppController, onVisibilityChanged: @escaping (Bool) -> Void) {
+        self.onVisibilityChanged = onVisibilityChanged
         let rootView = ManageAccountsView(controller: controller)
         let hostingController = NSHostingController(rootView: rootView)
 
@@ -16,6 +19,7 @@ final class ManageWindowController: NSWindowController {
         window.center()
 
         super.init(window: window)
+        window.delegate = self
     }
 
     @available(*, unavailable)
@@ -27,5 +31,10 @@ final class ManageWindowController: NSWindowController {
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
+        onVisibilityChanged(true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        onVisibilityChanged(false)
     }
 }

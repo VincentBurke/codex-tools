@@ -1,5 +1,10 @@
 import Foundation
 
+public enum RuntimeMonitoringMode: Sendable, Equatable {
+    case idle
+    case interactive
+}
+
 public struct AccountWithUsage: Sendable, Equatable {
     public var account: AccountInfo
     public var usage: UsageInfo?
@@ -169,11 +174,18 @@ public struct RuntimeTickOutput: Sendable, Equatable {
     public var shouldQuit: Bool
     public var snapshotsChanged: Bool
     public var surfacedError: String?
+    public var nextTickDelaySeconds: TimeInterval
 
-    public init(shouldQuit: Bool, snapshotsChanged: Bool, surfacedError: String?) {
+    public init(
+        shouldQuit: Bool,
+        snapshotsChanged: Bool,
+        surfacedError: String?,
+        nextTickDelaySeconds: TimeInterval
+    ) {
         self.shouldQuit = shouldQuit
         self.snapshotsChanged = snapshotsChanged
         self.surfacedError = surfacedError
+        self.nextTickDelaySeconds = nextTickDelaySeconds
     }
 }
 

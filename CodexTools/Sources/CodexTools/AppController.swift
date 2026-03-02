@@ -13,17 +13,28 @@ final class AppController: ObservableObject {
     var requestClosePopover: (() -> Void)?
 
     private let runtime: ServiceRuntime
-    private var loopTimer: Timer?
-    private var tickInFlight = false
+    private var loopTask: Task<Void, Never>?
+    private var snapshotSubscriptionTask: Task<Void, Never>?
+    private var monitoringMode: RuntimeMonitoringMode = .idle
 
     init(runtime: ServiceRuntime = ServiceRuntime()) {
         self.runtime = runtime
 
-        Task {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
             await runtime.boot()
             await refreshSnapshots()
+            await runtime.setMonitoringMode(monitoringMode)
+            startSnapshotSubscription()
             startLoop()
         }
+    }
+
+    deinit {
+        loopTask?.cancel()
+        snapshotSubscriptionTask?.cancel()
     }
 
     func sendStatusCommand(_ command: StatusMenuCommand) {
@@ -41,14 +52,28 @@ final class AppController: ObservableObject {
 
         Task {
             await runtime.handleStatusCommand(command)
-            await refreshSnapshots()
         }
     }
 
     func sendManageAction(_ action: ManageAccountsAction) {
         Task {
             await runtime.handleManageAction(action)
-            await refreshSnapshots()
+        }
+    }
+
+    func setMonitoringMode(_ mode: RuntimeMonitoringMode) {
+        guard monitoringMode != mode else {
+            return
+        }
+        monitoringMode = mode
+        Task { [weak self] in
+            guard let self else {
+                return
+            }
+            await self.runtime.setMonitoringMode(mode)
+            await MainActor.run {
+                self.startLoop()
+            }
         }
     }
 
@@ -85,36 +110,54 @@ final class AppController: ObservableObject {
     }
 
     private func startLoop() {
-        loopTimer?.invalidate()
-        loopTimer = Timer.scheduledTimer(withTimeInterval: 0.20, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.runTick()
+        loopTask?.cancel()
+        loopTask = Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+            while !Task.isCancelled {
+                let output = await runtime.tick()
+                handleTickOutput(output)
+                if output.shouldQuit {
+                    return
+                }
+
+                do {
+                    try await Task.sleep(nanoseconds: nanoseconds(for: output.nextTickDelaySeconds))
+                } catch {
+                    return
+                }
             }
         }
     }
 
-    private func runTick() {
-        guard !tickInFlight else {
-            return
+    private func startSnapshotSubscription() {
+        snapshotSubscriptionTask?.cancel()
+        snapshotSubscriptionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+            let stream = await self.runtime.subscribeSnapshots()
+            for await _ in stream {
+                if Task.isCancelled {
+                    return
+                }
+                await self.refreshSnapshots()
+            }
         }
-        tickInFlight = true
+    }
 
-        Task {
-            let output = await runtime.tick()
-            let shouldPollRefreshing = statusSnapshot.isRefreshingUsage
-                || manageSnapshot.accounts.contains(where: { $0.isUsageRefreshing })
-
-            if output.snapshotsChanged || shouldPollRefreshing {
-                await refreshSnapshots()
-            }
-            if let surfacedError = output.surfacedError {
-                showErrorAlert(title: "Operation Failed", message: surfacedError)
-            }
-            if output.shouldQuit {
-                NSApp.terminate(nil)
-            }
-            tickInFlight = false
+    private func handleTickOutput(_ output: RuntimeTickOutput) {
+        if let surfacedError = output.surfacedError {
+            showErrorAlert(title: "Operation Failed", message: surfacedError)
         }
+        if output.shouldQuit {
+            NSApp.terminate(nil)
+        }
+    }
+
+    private func nanoseconds(for seconds: TimeInterval) -> UInt64 {
+        UInt64(max(0, seconds) * 1_000_000_000)
     }
 
     private func refreshSnapshots() async {

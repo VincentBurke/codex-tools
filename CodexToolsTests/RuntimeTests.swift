@@ -263,6 +263,7 @@ final class RuntimeTests: XCTestCase {
             )
 
             await runtime.boot()
+            await runtime.setMonitoringMode(.interactive)
             let output = await runtime.tick(now: Date().addingTimeInterval(4))
             XCTAssertFalse(output.snapshotsChanged)
             XCTAssertNil(output.surfacedError)
@@ -289,6 +290,7 @@ final class RuntimeTests: XCTestCase {
             )
 
             await runtime.boot()
+            await runtime.setMonitoringMode(.interactive)
             let output = await runtime.tick(now: Date().addingTimeInterval(4))
             XCTAssertTrue(output.snapshotsChanged)
             XCTAssertNil(output.surfacedError)
@@ -317,6 +319,7 @@ final class RuntimeTests: XCTestCase {
             )
 
             await runtime.boot()
+            await runtime.setMonitoringMode(.interactive)
             let output = await runtime.tick(now: Date().addingTimeInterval(4))
             XCTAssertTrue(output.snapshotsChanged)
             XCTAssertEqual(output.surfacedError, "process check failed")
@@ -459,6 +462,130 @@ final class RuntimeTests: XCTestCase {
             XCTAssertNotNil(secondRow.usageLastRefreshed)
         }
     }
+
+    func testIdleMonitoringDisablesPeriodicProcessChecks() async throws {
+        let tempHome = try makeTempDirectory()
+
+        try await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            _ = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
+
+            let processService = CountingProcessService(processCount: 0)
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: processService,
+                processTerminator: processService
+            )
+
+            await runtime.boot()
+            await waitForProcessChecks(processService, minimumCount: 1)
+            await runtime.setMonitoringMode(.idle)
+
+            let baseline = processService.checkCount()
+            _ = await runtime.tick(now: Date().addingTimeInterval(120))
+            _ = await runtime.tick(now: Date().addingTimeInterval(600))
+
+            XCTAssertEqual(processService.checkCount(), baseline)
+        }
+    }
+
+    func testInteractiveMonitoringChecksProcessesAtConfiguredCadence() async throws {
+        let tempHome = try makeTempDirectory()
+
+        try await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            _ = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
+
+            let processService = CountingProcessService(processCount: 0)
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: processService,
+                processTerminator: processService
+            )
+
+            await runtime.boot()
+            await waitForProcessChecks(processService, minimumCount: 1)
+            await runtime.setMonitoringMode(.interactive)
+
+            let baseline = processService.checkCount()
+            let baseNow = Date()
+
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(4))
+            let afterFirstPeriodicCheck = processService.checkCount()
+            XCTAssertEqual(afterFirstPeriodicCheck, baseline + 1)
+
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(6))
+            XCTAssertEqual(processService.checkCount(), afterFirstPeriodicCheck)
+
+            _ = await runtime.tick(now: baseNow.addingTimeInterval(7.2))
+            XCTAssertEqual(processService.checkCount(), afterFirstPeriodicCheck + 1)
+        }
+    }
+
+    func testTickSchedulesFastRetryWhenOAuthLoginIsPending() async throws {
+        let tempHome = try makeTempDirectory()
+
+        await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            await runtime.boot()
+            await runtime.handleManageAction(.addAccount(.oauth(.copyLink)))
+            let output = await runtime.tick(now: Date().addingTimeInterval(10))
+            XCTAssertLessThanOrEqual(output.nextTickDelaySeconds, 1.0)
+        }
+    }
+
+    func testSnapshotSubscriptionPublishesOnRefreshStartAndCompletion() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let account = try domain.addAccount(.newAPIKey(name: "first", apiKey: "sk-first"))
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: DelayedSingleRefreshUsageClient(delayNanoseconds: 50_000_000),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            await runtime.boot()
+            let stream = await runtime.subscribeSnapshots()
+            var iterator = stream.makeAsyncIterator()
+
+            let initialRevision = await iterator.next()
+            await runtime.handleManageAction(.refreshUsage(account.id))
+            let refreshStartedRevision = await iterator.next()
+            let refreshCompletedRevision = await iterator.next()
+
+            guard let initialRevision, let refreshStartedRevision, let refreshCompletedRevision else {
+                XCTFail("Expected three snapshot revisions from subscription stream")
+                return
+            }
+
+            XCTAssertLessThan(initialRevision, refreshStartedRevision)
+            XCTAssertLessThan(refreshStartedRevision, refreshCompletedRevision)
+        }
+    }
 }
 
 private struct StubUsageClient: UsageClient {
@@ -592,6 +719,51 @@ private actor RecordingSingleRefreshUsageClient: UsageClient {
     }
 }
 
+private struct DelayedSingleRefreshUsageClient: UsageClient {
+    let delayNanoseconds: UInt64
+
+    func getUsage(for account: StoredAccount) async throws -> UsageInfo {
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+        let nowTS = Int64(Date().timeIntervalSince1970)
+        return usageInfo(accountID: account.id, weeklyUsedPercent: 45, weeklyResetAt: nowTS + 3_600)
+    }
+
+    func refreshAllUsage(accounts: [StoredAccount]) async -> [UsageInfo] {
+        []
+    }
+}
+
+private final class CountingProcessService: ProcessInspector, ProcessTerminator, @unchecked Sendable {
+    private let lock = NSLock()
+    private let processCount: Int
+    private var checks = 0
+
+    init(processCount: Int) {
+        self.processCount = processCount
+    }
+
+    func checkCodexProcesses() throws -> CodexProcessInfo {
+        lock.lock()
+        checks += 1
+        lock.unlock()
+        return CodexProcessInfo(
+            count: processCount,
+            canSwitch: processCount == 0,
+            pids: processCount == 0 ? [] : [9999]
+        )
+    }
+
+    func terminateCodexProcesses() throws -> Int {
+        processCount
+    }
+
+    func checkCount() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return checks
+    }
+}
+
 private func usageInfo(accountID: String, weeklyUsedPercent: Double, weeklyResetAt: Int64?) -> UsageInfo {
     UsageInfo(
         accountID: accountID,
@@ -612,6 +784,15 @@ private func usageInfo(accountID: String, weeklyUsedPercent: Double, weeklyReset
 private func waitForRefreshAllToFinish(_ runtime: ServiceRuntime) async {
     for _ in 0..<200 {
         if !(await runtime.currentStatusSnapshot().isRefreshingUsage) {
+            return
+        }
+        await Task.yield()
+    }
+}
+
+private func waitForProcessChecks(_ service: CountingProcessService, minimumCount: Int) async {
+    for _ in 0..<400 {
+        if service.checkCount() >= minimumCount {
             return
         }
         await Task.yield()
