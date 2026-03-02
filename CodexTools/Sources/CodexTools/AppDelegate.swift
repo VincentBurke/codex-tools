@@ -43,11 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "CT"
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        item.button?.title = ""
+        item.button?.imagePosition = .imageOnly
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
+        item.button?.setAccessibilityLabel("Codex Tools")
         statusItem = item
+        applyStatusItemIcon()
     }
 
     private func setupPopover() {
@@ -73,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         installPopoverClickMonitors()
+    }
+
+    private func applyStatusItemIcon() {
+        guard let button = statusItem?.button else {
+            return
+        }
+
+        button.image = makeStatusItemImage()
+        button.toolTip = "Codex Tools"
     }
 
     private func closePopover() {
