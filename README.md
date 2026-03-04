@@ -10,12 +10,7 @@ Lightweight, native Swift macOS menu bar app for switching between multiple Code
 - Manage accounts (add/import/rename/delete)
 - Usage refresh with "next best" recommendation
 - Switch guardrails while Codex processes are running
-- Force Close Codex
-
-## Requirements
-
-- macOS 14+
-- Swift 6 (or compatible Xcode)
+- Force Kill Codex
 
 ## Install
 
@@ -72,16 +67,6 @@ Or open `CodexTools.xcodeproj` and run the `CodexTools` target.
 ```bash
 swift test
 ```
-
-SwiftPM targets treat warnings as errors.
-
-## Project Layout
-
-- `CodexTools/`: app target (menu bar UI, AppKit + SwiftUI)
-- `CodexToolsCore/`: runtime/domain/services
-- `CodexToolsTests/`: unit and integration-style tests
-- `CodexToolsUITests/`: UI test scaffold
-- `Package.swift`: SwiftPM entrypoint
 
 ## Current Limits
 
