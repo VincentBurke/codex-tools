@@ -14,6 +14,10 @@ struct ManageAccountsView: View {
         controller.manageSnapshot.accounts
     }
 
+    private var unavailableAccounts: [ManageAccountItem] {
+        terminalUnavailableAccounts(in: visibleAccounts)
+    }
+
     private var selectedAccountBinding: Binding<String?> {
         Binding(
             get: { controller.selectedManageAccountID },
@@ -27,12 +31,7 @@ struct ManageAccountsView: View {
         }
 
         return visibleAccounts.allSatisfy { account in
-            usageSeverity(
-                fiveHourRemaining: account.fiveHourRemaining,
-                weeklyRemaining: account.weeklyRemaining,
-                isStale: account.isStale,
-                usageError: account.usageError
-            ) == .unavailable
+            account.availability == .unavailable
         }
     }
 
@@ -110,6 +109,19 @@ struct ManageAccountsView: View {
             }
         } else {
             List(selection: selectedAccountBinding) {
+                if !unavailableAccounts.isEmpty {
+                    cleanupStrip(unavailableAccounts)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: UITheme.Spacing.xs,
+                                leading: UITheme.Spacing.m,
+                                bottom: UITheme.Spacing.xs,
+                                trailing: UITheme.Spacing.m
+                            )
+                        )
+                        .accessibilityIdentifier(A11yID.manage.cleanupStrip)
+                }
+
                 if allUsageUnknown {
                     warningStrip("Usage unavailable; refresh to evaluate switch target.")
                         .listRowInsets(
@@ -146,7 +158,7 @@ struct ManageAccountsView: View {
             weeklyRemaining: account.weeklyRemaining,
             fiveHourRemaining: account.fiveHourRemaining
         )
-        let health = healthIndicator(for: account, severity: model.severity)
+        let health = healthIndicator(for: account)
         let expanded = expandedRowState[account.id] ?? false
 
         return VStack(alignment: .leading, spacing: UITheme.Spacing.xs) {
@@ -185,7 +197,7 @@ struct ManageAccountsView: View {
                     statusIndicator(health)
                 }
 
-                switchActionControl(for: account, isActive: model.isActive)
+                switchActionControl(for: account)
 
                 Button {
                     toggleExpandedRow(account.id)
@@ -290,6 +302,27 @@ struct ManageAccountsView: View {
         .padding(.vertical, UITheme.Spacing.xxs)
     }
 
+    private func cleanupStrip(_ accounts: [ManageAccountItem]) -> some View {
+        HStack(alignment: .center, spacing: UITheme.Spacing.s) {
+            Label(
+                accounts.count == 1 ? "1 unavailable account found." : "\(accounts.count) unavailable accounts found.",
+                systemImage: "exclamationmark.octagon.fill"
+            )
+            .font(UITheme.Font.captionStrong)
+            .foregroundStyle(UITheme.Color.depletedUsage)
+
+            Spacer(minLength: UITheme.Spacing.xs)
+
+            Button("Remove Unavailable Accounts...") {
+                controller.requestDeleteUnavailable(accounts)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .accessibilityIdentifier(A11yID.manage.cleanupRemove)
+        }
+        .padding(.vertical, UITheme.Spacing.xxs)
+    }
+
     private func usageMetric(label: String, value: String, color: Color) -> some View {
         VStack(alignment: .trailing, spacing: 1) {
             Text(label)
@@ -336,21 +369,32 @@ struct ManageAccountsView: View {
         .help("Usage refresh in progress")
     }
 
-    private func switchActionControl(for account: ManageAccountItem, isActive: Bool) -> some View {
-        Group {
-            if isActive {
-                Text("Active")
+    private func switchActionControl(for account: ManageAccountItem) -> some View {
+        let presentation = makeManageRowActionPresentation(account: account, canSwitch: controller.manageSnapshot.canSwitch)
+
+        return Group {
+            switch presentation.kind {
+            case .active:
+                Text(presentation.label)
                     .font(UITheme.Font.captionStrong)
                     .foregroundStyle(.tint)
-            } else {
-                Button("Switch") {
+            case .switchAccount:
+                Button(presentation.label) {
                     controller.setSelectedManageAccountID(account.id)
                     controller.sendManageAction(.switch(account.id))
                 }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
-                .disabled(!controller.manageSnapshot.canSwitch)
+                .disabled(!presentation.isEnabled)
                 .accessibilityIdentifier(A11yID.manage.rowSwitch(account.id))
+            case .remove:
+                Button(presentation.label, role: .destructive) {
+                    controller.setSelectedManageAccountID(account.id)
+                    controller.requestDelete(account)
+                }
+                .controlSize(.small)
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier(A11yID.manage.rowRemove(account.id))
             }
         }
         .frame(width: UITheme.Manage.actionColumnWidth, alignment: .trailing)
@@ -366,6 +410,8 @@ struct ManageAccountsView: View {
             return UITheme.Color.depletedUsage
         case .stale:
             return UITheme.Color.staleUsage
+        case .paymentRequired, .expired, .disabled:
+            return UITheme.Color.depletedUsage
         case .unavailable:
             return UITheme.Color.unavailableUsage
         }
@@ -422,16 +468,13 @@ struct ManageAccountsView: View {
     private func rowSubtitle(for account: ManageAccountItem) -> String {
         makeManageRowSubtitle(
             plan: account.plan,
-            isStale: account.isStale,
-            weeklyRemaining: account.weeklyRemaining,
-            fiveHourRemaining: account.fiveHourRemaining,
-            usageError: account.usageError
+            availability: account.availability
         )
     }
 
-    private func healthIndicator(for account: ManageAccountItem, severity: UsageSeverity) -> ManageRowHealthPresentation {
+    private func healthIndicator(for account: ManageAccountItem) -> ManageRowHealthPresentation {
         makeManageRowHealthPresentation(
-            baseSeverity: severity,
+            availability: account.availability,
             weeklyRemaining: account.weeklyRemaining,
             fiveHourRemaining: account.fiveHourRemaining
         )
@@ -453,19 +496,33 @@ struct ManageAccountsView: View {
     }
 
     private func usageDetailsLabel(for account: ManageAccountItem) -> String {
-        if hasUsageError(account.usageError) {
+        switch account.availability {
+        case .paymentRequired:
+            return "Payment Required"
+        case .expired:
+            return "Expired"
+        case .disabled:
+            return "Disabled"
+        case .unavailable:
             return "Unavailable"
+        case .stale:
+            return "Stale"
+        case .fresh:
+            return "Fresh"
         }
-
-        return account.isStale ? "Stale" : "Fresh"
     }
 
     private func usageDetailsColor(for account: ManageAccountItem) -> Color {
-        if hasUsageError(account.usageError) {
+        switch account.availability {
+        case .paymentRequired, .expired, .disabled:
+            return UITheme.Color.depletedUsage
+        case .unavailable:
             return UITheme.Color.unavailableUsage
+        case .stale:
+            return UITheme.Color.staleUsage
+        case .fresh:
+            return .secondary
         }
-
-        return account.isStale ? UITheme.Color.staleUsage : .secondary
     }
 
     private func avatar(for model: AccountRowDisplayModel) -> some View {

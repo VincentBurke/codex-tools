@@ -178,6 +178,8 @@ public actor ServiceRuntime {
             await handleInlineRename(accountID: id, newName: newName)
         case .delete(let id):
             await handleDeleteAccount(accountID: id)
+        case .deleteMany(let ids):
+            await handleDeleteAccounts(accountIDs: ids)
         }
 
         completeCommandHandling()
@@ -253,8 +255,12 @@ public actor ServiceRuntime {
     }
 
     private func handleDeleteAccount(accountID: String) async {
+        await handleDeleteAccounts(accountIDs: [accountID])
+    }
+
+    private func handleDeleteAccounts(accountIDs: [String]) async {
         do {
-            try storeDomain.removeAccount(accountID)
+            try storeDomain.removeAccounts(accountIDs)
             try loadAccounts(preserveUsage: false)
         } catch {
             setError(error.localizedDescription)
@@ -405,12 +411,15 @@ public actor ServiceRuntime {
             return item
         }
 
+        let validIDs = Set(accountInfos.map(\.id))
         var cachedAtByID: [String: Int64] = [:]
         for (id, (_, cachedAt)) in usageByID {
-            cachedAtByID[id] = cachedAt
+            if validIDs.contains(id) {
+                cachedAtByID[id] = cachedAt
+            }
         }
         state.usageCachedAtUnix = cachedAtByID
-
+        state.staleUsageAccounts = Set(state.staleUsageAccounts.filter { validIDs.contains($0) })
     }
 
     private func startRefreshAll() async {
@@ -509,13 +518,20 @@ public actor ServiceRuntime {
                 continue
             }
 
-            if usage.error == nil {
-                state.staleUsageAccounts.remove(state.accounts[index].account.id)
-                state.usageCachedAtUnix[state.accounts[index].account.id] = nowTS
+            let accountID = state.accounts[index].account.id
+
+            if terminalManageAvailabilityState(forUsageError: usage.error) != nil {
+                state.staleUsageAccounts.remove(accountID)
+                state.usageCachedAtUnix.removeValue(forKey: accountID)
+                state.accounts[index].usage = usage
+                try storeDomain.removeUsageCacheEntries(accountIDs: [accountID])
+            } else if usage.error == nil {
+                state.staleUsageAccounts.remove(accountID)
+                state.usageCachedAtUnix[accountID] = nowTS
                 cacheEntries.append(CachedUsageEntry(usage: usage, cachedAtUnix: nowTS))
                 state.accounts[index].usage = usage
             } else {
-                state.staleUsageAccounts.insert(state.accounts[index].account.id)
+                state.staleUsageAccounts.insert(accountID)
                 if state.accounts[index].usage == nil {
                     state.accounts[index].usage = usage
                 }
@@ -545,7 +561,12 @@ public actor ServiceRuntime {
             if let index = state.accounts.firstIndex(where: { $0.account.id == accountID }) {
                 state.accounts[index].usageLoading = false
 
-                if usage.error == nil {
+                if terminalManageAvailabilityState(forUsageError: usage.error) != nil {
+                    state.accounts[index].usage = usage
+                    state.staleUsageAccounts.remove(accountID)
+                    state.usageCachedAtUnix.removeValue(forKey: accountID)
+                    try storeDomain.removeUsageCacheEntries(accountIDs: [accountID])
+                } else if usage.error == nil {
                     let nowTS = Int64(Date().timeIntervalSince1970)
                     state.accounts[index].usage = usage
                     state.staleUsageAccounts.remove(accountID)
@@ -653,12 +674,37 @@ public actor ServiceRuntime {
                     weeklyRemaining: remainingPercentFromUsed(account.usage?.secondaryUsedPercent),
                     weeklyResetCountdown: formatWeeklyResetCountdown(resetsAtUnix: account.usage?.secondaryResetsAt, nowTS: nowTS),
                     usageError: account.usage?.error,
+                    availability: manageAvailabilityState(accountID: account.account.id, usage: account.usage, nowTS: nowTS),
                     isUsageRefreshing: account.usageLoading,
                     usageLastRefreshed: state.usageCachedAtUnix[account.account.id].map(formatUsageRefreshed)
                 )
             },
             canSwitch: !state.hasRunningProcesses()
         )
+    }
+
+    private func manageAvailabilityState(
+        accountID: String,
+        usage: UsageInfo?,
+        nowTS: Int64
+    ) -> ManageAccountAvailabilityState {
+        if let terminalState = terminalManageAvailabilityState(forUsageError: usage?.error) {
+            return terminalState
+        }
+
+        guard let usage else {
+            return .unavailable
+        }
+
+        if usage.error != nil {
+            return .unavailable
+        }
+
+        if isUsageStale(accountID: accountID, usage: usage, nowTS: nowTS) {
+            return .stale
+        }
+
+        return .fresh
     }
 
     private func isUsageStale(accountID: String, usage: UsageInfo?, nowTS: Int64) -> Bool {

@@ -106,6 +106,25 @@ public enum ManageAccountsAction: Sendable, Equatable {
     case refreshUsage(String)
     case renameInline(id: String, newName: String)
     case delete(String)
+    case deleteMany([String])
+}
+
+public enum ManageAccountAvailabilityState: String, Sendable, Equatable {
+    case fresh
+    case stale
+    case paymentRequired = "payment_required"
+    case expired
+    case disabled
+    case unavailable
+
+    public var isTerminalUnavailable: Bool {
+        switch self {
+        case .paymentRequired, .expired, .disabled:
+            return true
+        case .fresh, .stale, .unavailable:
+            return false
+        }
+    }
 }
 
 public struct ManageAccountItem: Sendable, Equatable {
@@ -121,6 +140,7 @@ public struct ManageAccountItem: Sendable, Equatable {
     public var weeklyRemaining: UInt8?
     public var weeklyResetCountdown: String?
     public var usageError: String?
+    public var availability: ManageAccountAvailabilityState
     public var isUsageRefreshing: Bool
     public var usageLastRefreshed: String?
 
@@ -137,6 +157,7 @@ public struct ManageAccountItem: Sendable, Equatable {
         weeklyRemaining: UInt8?,
         weeklyResetCountdown: String?,
         usageError: String?,
+        availability: ManageAccountAvailabilityState,
         isUsageRefreshing: Bool = false,
         usageLastRefreshed: String? = nil
     ) {
@@ -152,6 +173,7 @@ public struct ManageAccountItem: Sendable, Equatable {
         self.weeklyRemaining = weeklyRemaining
         self.weeklyResetCountdown = weeklyResetCountdown
         self.usageError = usageError
+        self.availability = availability
         self.isUsageRefreshing = isUsageRefreshing
         self.usageLastRefreshed = usageLastRefreshed
     }

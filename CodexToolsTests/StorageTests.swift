@@ -67,6 +67,31 @@ final class StorageTests: XCTestCase {
         }
     }
 
+    func testBulkDeletingAccountsPrunesUsageCacheAndReassignsActiveOnce() throws {
+        let temp = try makeTempDirectory()
+        try withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+
+            let first = try domain.addAccount(.newAPIKey(name: "Primary", apiKey: "sk-1"))
+            let second = try domain.addAccount(.newAPIKey(name: "Disabled", apiKey: "sk-2"))
+            let third = try domain.addAccount(.newAPIKey(name: "Expired", apiKey: "sk-3"))
+
+            try domain.setActiveAccount(second.id)
+            try domain.upsertUsageCacheEntries([
+                CachedUsageEntry(usage: UsageInfo.error(accountID: second.id, message: "disabled"), cachedAtUnix: 101),
+                CachedUsageEntry(usage: UsageInfo.error(accountID: third.id, message: "expired"), cachedAtUnix: 202)
+            ])
+
+            try domain.removeAccounts([second.id, third.id])
+
+            let store = try repository.loadStore()
+            XCTAssertEqual(store.accounts.map(\.id), [first.id])
+            XCTAssertEqual(store.activeAccountID, first.id)
+            XCTAssertTrue(store.usageCache.isEmpty)
+        }
+    }
+
     func testRejectsLegacyV1Store() throws {
         let temp = try makeTempDirectory()
         try withEnv("CODEX_TOOLS_HOME", temp.path) {

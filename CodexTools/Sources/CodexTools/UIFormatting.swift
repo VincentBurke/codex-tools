@@ -7,6 +7,9 @@ enum UsageSeverity: Equatable {
     case low
     case depleted
     case stale
+    case paymentRequired
+    case expired
+    case disabled
     case unavailable
 }
 
@@ -35,6 +38,19 @@ struct ManageRowHealthPresentation: Equatable {
     let label: String
     let symbolName: String
     let effectiveSeverity: UsageSeverity
+}
+
+enum ManageRowActionKind: Equatable {
+    case active
+    case switchAccount
+    case remove
+}
+
+struct ManageRowActionPresentation: Equatable {
+    let kind: ManageRowActionKind
+    let label: String
+    let isDestructive: Bool
+    let isEnabled: Bool
 }
 
 enum ManageKeyboardCommand: Equatable {
@@ -72,10 +88,7 @@ func makeManageRowMetricPresentation(
 
 func makeManageRowSubtitle(
     plan: String?,
-    isStale: Bool,
-    weeklyRemaining: UInt8?,
-    fiveHourRemaining: UInt8?,
-    usageError: String?
+    availability: ManageAccountAvailabilityState
 ) -> String {
     var parts: [String] = []
 
@@ -83,10 +96,18 @@ func makeManageRowSubtitle(
         parts.append(plan)
     }
 
-    let usageUnavailable = hasUsageError(usageError) || (weeklyRemaining == nil && fiveHourRemaining == nil)
-    if isStale {
+    switch availability {
+    case .fresh:
+        break
+    case .stale:
         parts.append("stale usage")
-    } else if usageUnavailable {
+    case .paymentRequired:
+        parts.append("payment required")
+    case .expired:
+        parts.append("expired")
+    case .disabled:
+        parts.append("disabled")
+    case .unavailable:
         parts.append("usage unavailable")
     }
 
@@ -143,10 +164,46 @@ func usageSeverity(
 }
 
 func makeManageRowHealthPresentation(
-    baseSeverity: UsageSeverity,
+    availability: ManageAccountAvailabilityState,
     weeklyRemaining: UInt8?,
     fiveHourRemaining: UInt8?
 ) -> ManageRowHealthPresentation {
+    switch availability {
+    case .paymentRequired:
+        return ManageRowHealthPresentation(
+            label: "Payment Required",
+            symbolName: "creditcard.trianglebadge.exclamationmark",
+            effectiveSeverity: .paymentRequired
+        )
+    case .expired:
+        return ManageRowHealthPresentation(
+            label: "Expired",
+            symbolName: "clock.badge.exclamationmark",
+            effectiveSeverity: .expired
+        )
+    case .disabled:
+        return ManageRowHealthPresentation(
+            label: "Disabled",
+            symbolName: "xmark.octagon.fill",
+            effectiveSeverity: .disabled
+        )
+    case .unavailable:
+        return ManageRowHealthPresentation(
+            label: "Unavailable",
+            symbolName: "questionmark.circle.fill",
+            effectiveSeverity: .unavailable
+        )
+    case .fresh, .stale:
+        break
+    }
+
+    let baseSeverity = usageSeverity(
+        fiveHourRemaining: fiveHourRemaining,
+        weeklyRemaining: weeklyRemaining,
+        isStale: availability == .stale,
+        usageError: nil
+    )
+
     let minimum = [weeklyRemaining, fiveHourRemaining].compactMap { $0 }.min()
     let stalenessAgnosticSeverity: UsageSeverity
 
@@ -199,12 +256,26 @@ func makeManageRowHealthPresentation(
             symbolName: "clock.fill",
             effectiveSeverity: .stale
         )
-    case .unavailable:
+    case .paymentRequired:
         return ManageRowHealthPresentation(
-            label: "Unknown",
-            symbolName: "questionmark.circle.fill",
-            effectiveSeverity: .unavailable
+            label: "Payment Required",
+            symbolName: "creditcard.trianglebadge.exclamationmark",
+            effectiveSeverity: .paymentRequired
         )
+    case .expired:
+        return ManageRowHealthPresentation(
+            label: "Expired",
+            symbolName: "clock.badge.exclamationmark",
+            effectiveSeverity: .expired
+        )
+    case .disabled:
+        return ManageRowHealthPresentation(
+            label: "Disabled",
+            symbolName: "xmark.octagon.fill",
+            effectiveSeverity: .disabled
+        )
+    case .unavailable:
+        return ManageRowHealthPresentation(label: "Unavailable", symbolName: "questionmark.circle.fill", effectiveSeverity: .unavailable)
     }
 }
 
@@ -218,6 +289,8 @@ func severityAccentColor(_ severity: UsageSeverity) -> Color {
         return UITheme.Color.depletedUsage
     case .stale:
         return UITheme.Color.staleUsage
+    case .paymentRequired, .expired, .disabled:
+        return UITheme.Color.depletedUsage
     case .unavailable:
         return UITheme.Color.unavailableUsage
     }
@@ -267,13 +340,43 @@ private func makeAccountRowDisplayModel(
 }
 
 func makeManageRowDisplayModel(_ account: ManageAccountItem) -> AccountRowDisplayModel {
-    makeAccountRowDisplayModel(
+    let severity: UsageSeverity
+    switch account.availability {
+    case .fresh:
+        severity = usageSeverity(
+            fiveHourRemaining: account.fiveHourRemaining,
+            weeklyRemaining: account.weeklyRemaining,
+            isStale: false,
+            usageError: nil
+        )
+    case .stale:
+        severity = usageSeverity(
+            fiveHourRemaining: account.fiveHourRemaining,
+            weeklyRemaining: account.weeklyRemaining,
+            isStale: true,
+            usageError: nil
+        )
+    case .paymentRequired:
+        severity = .paymentRequired
+    case .expired:
+        severity = .expired
+    case .disabled:
+        severity = .disabled
+    case .unavailable:
+        severity = .unavailable
+    }
+
+    return AccountRowDisplayModel(
         name: account.name,
+        weeklyText: percentLabel(account.weeklyRemaining),
+        severity: severity,
         isActive: account.isActive,
-        isStale: account.isStale,
-        weeklyRemaining: account.weeklyRemaining,
-        fiveHourRemaining: account.fiveHourRemaining,
-        usageError: account.usageError
+        statusLine: usageStatusLine(
+            fiveHourRemaining: account.fiveHourRemaining,
+            weeklyRemaining: account.weeklyRemaining,
+            isStale: account.availability == .stale,
+            usageError: account.availability.isTerminalUnavailable ? nil : account.usageError
+        )
     )
 }
 
@@ -342,7 +445,7 @@ func resolveManageKeyboardCommand(
         guard let selected = visibleAccounts.first(where: { $0.id == selectedAccountID }) else {
             return .none
         }
-        guard canSwitch, !selected.isActive else {
+        guard canSwitch, !selected.isActive, !selected.availability.isTerminalUnavailable else {
             return .none
         }
         return .switchAccount(selected.id)
@@ -359,6 +462,40 @@ func resolveManageKeyboardCommand(
         }
         return .toggleExpanded(targetID)
     }
+}
+
+func makeManageRowActionPresentation(
+    account: ManageAccountItem,
+    canSwitch: Bool
+) -> ManageRowActionPresentation {
+    if account.availability.isTerminalUnavailable {
+        return ManageRowActionPresentation(
+            kind: .remove,
+            label: "Remove",
+            isDestructive: true,
+            isEnabled: true
+        )
+    }
+
+    if account.isActive {
+        return ManageRowActionPresentation(
+            kind: .active,
+            label: "Active",
+            isDestructive: false,
+            isEnabled: false
+        )
+    }
+
+    return ManageRowActionPresentation(
+        kind: .switchAccount,
+        label: "Switch",
+        isDestructive: false,
+        isEnabled: canSwitch
+    )
+}
+
+func terminalUnavailableAccounts(in accounts: [ManageAccountItem]) -> [ManageAccountItem] {
+    accounts.filter { $0.availability.isTerminalUnavailable }
 }
 
 func makeNextBestRecommendation(from accounts: [StatusAccountEntry]) -> NextBestRecommendation? {

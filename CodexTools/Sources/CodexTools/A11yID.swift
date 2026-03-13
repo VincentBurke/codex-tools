@@ -4,6 +4,8 @@ enum A11yID {
         static let refresh = "manage.refresh"
         static let emptyAdd = "manage.emptyAdd"
         static let usageWarning = "manage.usageWarning"
+        static let cleanupStrip = "manage.cleanupStrip"
+        static let cleanupRemove = "manage.cleanupRemove"
 
         static func row(_ accountID: String) -> String {
             "manage.row.\(accountID)"
@@ -11,6 +13,10 @@ enum A11yID {
 
         static func rowSwitch(_ accountID: String) -> String {
             "manage.row.switch.\(accountID)"
+        }
+
+        static func rowRemove(_ accountID: String) -> String {
+            "manage.row.remove.\(accountID)"
         }
 
         static func rowDisclosure(_ accountID: String) -> String {

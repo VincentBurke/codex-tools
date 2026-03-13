@@ -422,6 +422,120 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
+    func testTerminalRefreshReplacesCachedUsageWithUnavailableState() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let account = try domain.addAccount(.newAPIKey(name: "disabled", apiKey: "sk-disabled"))
+
+            let nowTS = Int64(Date().timeIntervalSince1970)
+            try domain.upsertUsageCacheEntries([
+                CachedUsageEntry(
+                    usage: usageInfo(accountID: account.id, weeklyUsedPercent: 0, weeklyResetAt: nowTS + 3_600),
+                    cachedAtUnix: nowTS
+                )
+            ])
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: FixedSingleRefreshUsageClient(usage: .error(accountID: account.id, message: "payment required")),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            await runtime.boot()
+            await runtime.handleManageAction(.refreshUsage(account.id))
+            await waitForSingleRefreshToFinish(runtime, accountID: account.id)
+
+            let snapshot = await runtime.currentManageSnapshot()
+            let row = try XCTUnwrap(snapshot.accounts.first(where: { $0.id == account.id }))
+            XCTAssertEqual(row.availability, .paymentRequired)
+            XCTAssertNil(row.weeklyRemaining)
+            XCTAssertNil(row.fiveHourRemaining)
+            XCTAssertNil(row.weeklyResetCountdown)
+            XCTAssertNil(row.usageLastRefreshed)
+
+            let cache = try domain.loadUsageCache()
+            XCTAssertNil(cache[account.id])
+        }
+    }
+
+    func testTransientRefreshFailureKeepsCachedUsageAndIsNotTerminal() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let account = try domain.addAccount(.newAPIKey(name: "flaky", apiKey: "sk-flaky"))
+
+            let nowTS = Int64(Date().timeIntervalSince1970)
+            try domain.upsertUsageCacheEntries([
+                CachedUsageEntry(
+                    usage: usageInfo(accountID: account.id, weeklyUsedPercent: 12, weeklyResetAt: nowTS + 7_200),
+                    cachedAtUnix: nowTS
+                )
+            ])
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: FixedSingleRefreshUsageClient(usage: .error(accountID: account.id, message: "timeout contacting usage endpoint")),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            await runtime.boot()
+            await runtime.handleManageAction(.refreshUsage(account.id))
+            await waitForSingleRefreshToFinish(runtime, accountID: account.id)
+
+            let snapshot = await runtime.currentManageSnapshot()
+            let row = try XCTUnwrap(snapshot.accounts.first(where: { $0.id == account.id }))
+            XCTAssertEqual(row.availability, .stale)
+            XCTAssertEqual(row.weeklyRemaining, 88)
+            XCTAssertNotNil(row.usageLastRefreshed)
+
+            let cache = try domain.loadUsageCache()
+            XCTAssertNotNil(cache[account.id])
+        }
+    }
+
+    func testDeleteManyRemovesUnavailableAccountsAndReassignsActiveAccount() async throws {
+        let temp = try makeTempDirectory()
+        try await withEnv("CODEX_TOOLS_HOME", temp.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+
+            let active = try domain.addAccount(.newAPIKey(name: "active", apiKey: "sk-active"))
+            let disabled = try domain.addAccount(.newAPIKey(name: "disabled", apiKey: "sk-disabled"))
+            let expired = try domain.addAccount(.newAPIKey(name: "expired", apiKey: "sk-expired"))
+            try domain.setActiveAccount(disabled.id)
+            try domain.upsertUsageCacheEntries([
+                CachedUsageEntry(usage: UsageInfo.error(accountID: disabled.id, message: "disabled"), cachedAtUnix: 101),
+                CachedUsageEntry(usage: UsageInfo.error(accountID: expired.id, message: "expired"), cachedAtUnix: 102)
+            ])
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 0),
+                processTerminator: StubProcessService(processCount: 0)
+            )
+
+            await runtime.boot()
+            await runtime.handleManageAction(.deleteMany([disabled.id, expired.id]))
+
+            let store = try domain.loadStore()
+            XCTAssertEqual(store.accounts.map(\.id), [active.id])
+            XCTAssertEqual(store.activeAccountID, active.id)
+            XCTAssertTrue(store.usageCache.isEmpty)
+        }
+    }
+
     func testManageActionRefreshUsageTargetsSingleAccountAndSetsLastRefreshed() async throws {
         let temp = try makeTempDirectory()
         try await withEnv("CODEX_TOOLS_HOME", temp.path) {
@@ -719,6 +833,18 @@ private actor RecordingSingleRefreshUsageClient: UsageClient {
     }
 }
 
+private struct FixedSingleRefreshUsageClient: UsageClient {
+    let usage: UsageInfo
+
+    func getUsage(for account: StoredAccount) async throws -> UsageInfo {
+        usage
+    }
+
+    func refreshAllUsage(accounts: [StoredAccount]) async -> [UsageInfo] {
+        accounts.map { _ in usage }
+    }
+}
+
 private struct DelayedSingleRefreshUsageClient: UsageClient {
     let delayNanoseconds: UInt64
 
@@ -784,6 +910,16 @@ private func usageInfo(accountID: String, weeklyUsedPercent: Double, weeklyReset
 private func waitForRefreshAllToFinish(_ runtime: ServiceRuntime) async {
     for _ in 0..<200 {
         if !(await runtime.currentStatusSnapshot().isRefreshingUsage) {
+            return
+        }
+        await Task.yield()
+    }
+}
+
+private func waitForSingleRefreshToFinish(_ runtime: ServiceRuntime, accountID: String) async {
+    for _ in 0..<200 {
+        let snapshot = await runtime.currentManageSnapshot()
+        if snapshot.accounts.first(where: { $0.id == accountID })?.isUsageRefreshing == false {
             return
         }
         await Task.yield()

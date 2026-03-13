@@ -54,10 +54,7 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(
             makeManageRowSubtitle(
                 plan: nil,
-                isStale: false,
-                weeklyRemaining: 50,
-                fiveHourRemaining: 60,
-                usageError: "   "
+                availability: .fresh
             ),
             "--"
         )
@@ -90,7 +87,7 @@ final class UIFormattingTests: XCTestCase {
 
     func testManageHealthPresentationUsesSeverityLabelsAndSymbols() {
         let stale = makeManageRowHealthPresentation(
-            baseSeverity: .stale,
+            availability: .stale,
             weeklyRemaining: 50,
             fiveHourRemaining: 40
         )
@@ -99,7 +96,7 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(stale.effectiveSeverity, .healthy)
 
         let criticalFiveHour = makeManageRowHealthPresentation(
-            baseSeverity: .healthy,
+            availability: .fresh,
             weeklyRemaining: 90,
             fiveHourRemaining: 2
         )
@@ -108,23 +105,28 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(criticalFiveHour.effectiveSeverity, .depleted)
 
         let staleLowWeekly = makeManageRowHealthPresentation(
-            baseSeverity: .stale,
+            availability: .stale,
             weeklyRemaining: 8,
             fiveHourRemaining: 50
         )
         XCTAssertEqual(staleLowWeekly.label, "Low")
         XCTAssertEqual(staleLowWeekly.symbolName, "exclamationmark.circle.fill")
         XCTAssertEqual(staleLowWeekly.effectiveSeverity, .low)
+
+        let disabled = makeManageRowHealthPresentation(
+            availability: .disabled,
+            weeklyRemaining: nil,
+            fiveHourRemaining: nil
+        )
+        XCTAssertEqual(disabled.label, "Disabled")
+        XCTAssertEqual(disabled.effectiveSeverity, .disabled)
     }
 
     func testManageRowSubtitleUsesPlanAndStatusWithoutAuthMethod() {
         XCTAssertEqual(
             makeManageRowSubtitle(
                 plan: "team",
-                isStale: false,
-                weeklyRemaining: 95,
-                fiveHourRemaining: 90,
-                usageError: nil
+                availability: .fresh
             ),
             "team"
         )
@@ -132,10 +134,7 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(
             makeManageRowSubtitle(
                 plan: "team",
-                isStale: true,
-                weeklyRemaining: 60,
-                fiveHourRemaining: 70,
-                usageError: nil
+                availability: .stale
             ),
             "team • stale usage"
         )
@@ -143,10 +142,7 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(
             makeManageRowSubtitle(
                 plan: nil,
-                isStale: false,
-                weeklyRemaining: nil,
-                fiveHourRemaining: nil,
-                usageError: nil
+                availability: .unavailable
             ),
             "usage unavailable"
         )
@@ -154,12 +150,33 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(
             makeManageRowSubtitle(
                 plan: nil,
-                isStale: false,
-                weeklyRemaining: 50,
-                fiveHourRemaining: 60,
-                usageError: nil
+                availability: .fresh
             ),
             "--"
+        )
+
+        XCTAssertEqual(
+            makeManageRowSubtitle(
+                plan: "team",
+                availability: .paymentRequired
+            ),
+            "team • payment required"
+        )
+
+        XCTAssertEqual(
+            makeManageRowSubtitle(
+                plan: "team",
+                availability: .expired
+            ),
+            "team • expired"
+        )
+
+        XCTAssertEqual(
+            makeManageRowSubtitle(
+                plan: "team",
+                availability: .disabled
+            ),
+            "team • disabled"
         )
     }
 
@@ -234,6 +251,22 @@ final class UIFormattingTests: XCTestCase {
         )
 
         XCTAssertEqual(result, .switchAccount("b"))
+    }
+
+    func testResolveManageKeyboardSwitchSelectedIgnoresTerminalUnavailableRow() {
+        let accounts = [
+            makeManageAccount(id: "a", active: true),
+            makeManageAccount(id: "b", active: false, availability: .disabled)
+        ]
+
+        let result = resolveManageKeyboardCommand(
+            .switchSelected,
+            visibleAccounts: accounts,
+            selectedAccountID: "b",
+            canSwitch: true
+        )
+
+        XCTAssertEqual(result, .none)
     }
 
     func testResolveManageKeyboardDeleteSelectedReturnsDeleteRequest() {
@@ -338,7 +371,8 @@ final class UIFormattingTests: XCTestCase {
             fiveHourRemaining: 55,
             weeklyRemaining: 40,
             weeklyResetCountdown: "2d",
-            usageError: nil
+            usageError: nil,
+            availability: .stale
         )
         let status = StatusAccountEntry(
             id: "acct-1",
@@ -355,20 +389,51 @@ final class UIFormattingTests: XCTestCase {
         XCTAssertEqual(manageModel, statusModel)
     }
 
-    private func makeManageAccount(id: String, active: Bool) -> ManageAccountItem {
+    func testManageRowActionPresentationUsesRemoveForTerminalUnavailableRows() {
+        let presentation = makeManageRowActionPresentation(
+            account: makeManageAccount(id: "bad", active: false, availability: .paymentRequired),
+            canSwitch: true
+        )
+
+        XCTAssertEqual(presentation.kind, .remove)
+        XCTAssertEqual(presentation.label, "Remove")
+        XCTAssertTrue(presentation.isDestructive)
+    }
+
+    func testTerminalUnavailableAccountsReturnsOnlyTerminalRows() {
+        let accounts = [
+            makeManageAccount(id: "fresh", active: false),
+            makeManageAccount(id: "stale", active: false, availability: .stale),
+            makeManageAccount(id: "disabled", active: false, availability: .disabled),
+            makeManageAccount(id: "expired", active: false, availability: .expired),
+            makeManageAccount(id: "unknown", active: false, availability: .unavailable)
+        ]
+
+        XCTAssertEqual(
+            terminalUnavailableAccounts(in: accounts).map(\.id),
+            ["disabled", "expired"]
+        )
+    }
+
+    private func makeManageAccount(
+        id: String,
+        active: Bool,
+        availability: ManageAccountAvailabilityState = .fresh
+    ) -> ManageAccountItem {
         ManageAccountItem(
             id: id,
             name: "name-\(id)",
             isActive: active,
-            isStale: false,
+            isStale: availability == .stale,
             email: nil,
             authModeLabel: "ChatGPT",
             plan: nil,
             lastUsed: nil,
-            fiveHourRemaining: 50,
-            weeklyRemaining: 50,
-            weeklyResetCountdown: "2d",
-            usageError: nil
+            fiveHourRemaining: availability.isTerminalUnavailable ? nil : 50,
+            weeklyRemaining: availability.isTerminalUnavailable ? nil : 50,
+            weeklyResetCountdown: availability.isTerminalUnavailable ? nil : "2d",
+            usageError: availability.isTerminalUnavailable ? String(describing: availability.rawValue).replacingOccurrences(of: "_", with: " ") : nil,
+            availability: availability
         )
     }
 

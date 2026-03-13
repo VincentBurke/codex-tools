@@ -95,10 +95,18 @@ final class AppController: ObservableObject {
     }
 
     func requestDelete(_ account: ManageAccountItem) {
-        guard confirmDeleteAccount(name: account.name) else {
+        guard confirmDeleteAccounts(names: [account.name]) else {
             return
         }
         sendManageAction(.delete(account.id))
+    }
+
+    func requestDeleteUnavailable(_ accounts: [ManageAccountItem]) {
+        let accountNames = accounts.map(\.name)
+        guard confirmDeleteAccounts(names: accountNames) else {
+            return
+        }
+        sendManageAction(.deleteMany(accounts.map(\.id)))
     }
 
     func switchToAccountFromPopover(_ accountID: String) {
@@ -187,11 +195,20 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func confirmDeleteAccount(name: String) -> Bool {
+    private func confirmDeleteAccounts(names: [String]) -> Bool {
+        let sortedNames = names.sorted()
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Delete account \"\(name)\"?"
-        alert.informativeText = "This action cannot be undone."
+        if sortedNames.count == 1, let onlyName = sortedNames.first {
+            alert.messageText = "Delete account \"\(onlyName)\"?"
+            alert.informativeText = "This action cannot be undone."
+        } else {
+            let preview = sortedNames.prefix(6).joined(separator: "\n")
+            let remainingCount = max(0, sortedNames.count - 6)
+            let suffix = remainingCount > 0 ? "\n…and \(remainingCount) more." : ""
+            alert.messageText = "Delete \(sortedNames.count) unavailable accounts?"
+            alert.informativeText = "These accounts will be removed from the list:\n\(preview)\(suffix)"
+        }
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn

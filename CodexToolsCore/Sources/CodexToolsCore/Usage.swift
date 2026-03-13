@@ -1,6 +1,7 @@
 import Foundation
 
 private let refreshAllUsageMaxConcurrentRequests = 4
+private let usageErrorPreviewLimit = 140
 
 public final class DefaultUsageClient: UsageClient, @unchecked Sendable {
     private let session: URLSession
@@ -72,7 +73,10 @@ public final class DefaultUsageClient: UsageClient, @unchecked Sendable {
         }
 
         guard (200...299).contains(http.statusCode) else {
-            return UsageInfo.error(accountID: accountID, message: "API error: \(http.statusCode)")
+            return UsageInfo.error(
+                accountID: accountID,
+                message: usageErrorMessage(statusCode: http.statusCode, data: data)
+            )
         }
 
         let payload = try JSONDecoder().decode(RateLimitStatusPayload.self, from: data)
@@ -143,4 +147,137 @@ public func convertPayloadToUsageInfo(accountID: String, payload: RateLimitStatu
         creditsBalance: payload.credits?.balance,
         error: nil
     )
+}
+
+func terminalManageAvailabilityState(forUsageError usageError: String?) -> ManageAccountAvailabilityState? {
+    guard let usageError else {
+        return nil
+    }
+
+    let normalized = usageError
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+
+    guard !normalized.isEmpty else {
+        return nil
+    }
+
+    if normalized.contains("payment required") || normalized.contains("payment_required") {
+        return .paymentRequired
+    }
+
+    if normalized.contains("disabled")
+        || normalized.contains("deactivated")
+        || normalized.contains("suspended")
+        || normalized.contains("inactive account")
+        || normalized.contains("revoked") {
+        return .disabled
+    }
+
+    if normalized == "expired"
+        || normalized.contains("session expired")
+        || normalized.contains("token expired")
+        || normalized.contains("authorization expired")
+        || normalized.contains("auth expired")
+        || normalized.contains("invalid_grant") {
+        return .expired
+    }
+
+    return nil
+}
+
+private func usageErrorMessage(statusCode: Int, data: Data) -> String {
+    if statusCode == 401 {
+        return "expired"
+    }
+
+    let responseText = extractUsageErrorText(from: data)
+    let normalized = responseText.lowercased()
+
+    if statusCode == 402 || normalized.contains("payment_required") || normalized.contains("payment required") {
+        return "payment required"
+    }
+
+    if normalized.contains("disabled")
+        || normalized.contains("deactivated")
+        || normalized.contains("suspended")
+        || normalized.contains("inactive")
+        || normalized.contains("revoked") {
+        return "disabled"
+    }
+
+    if normalized.contains("token expired")
+        || normalized.contains("session expired")
+        || normalized.contains("auth expired")
+        || normalized.contains("authorization expired")
+        || normalized.contains("invalid_grant") {
+        return "expired"
+    }
+
+    guard !responseText.isEmpty else {
+        return "API error: \(statusCode)"
+    }
+
+    return "API error: \(statusCode) - \(responseText)"
+}
+
+private func extractUsageErrorText(from data: Data) -> String {
+    guard !data.isEmpty else {
+        return ""
+    }
+
+    if let object = try? JSONSerialization.jsonObject(with: data),
+       let extracted = extractUsageErrorText(fromJSONObject: object),
+       !extracted.isEmpty {
+        return String(extracted.prefix(usageErrorPreviewLimit))
+    }
+
+    guard let raw = String(data: data, encoding: .utf8) else {
+        return ""
+    }
+
+    let collapsed = raw
+        .replacingOccurrences(of: "\n", with: " ")
+        .replacingOccurrences(of: "\r", with: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    return String(collapsed.prefix(usageErrorPreviewLimit))
+}
+
+private func extractUsageErrorText(fromJSONObject object: Any) -> String? {
+    switch object {
+    case let dictionary as [String: Any]:
+        let priorityKeys = ["error", "message", "detail", "reason", "code", "type"]
+        for key in priorityKeys {
+            if let value = dictionary[key],
+               let extracted = extractUsageErrorText(fromJSONObject: value),
+               !extracted.isEmpty {
+                return extracted
+            }
+        }
+
+        for value in dictionary.values {
+            if let extracted = extractUsageErrorText(fromJSONObject: value),
+               !extracted.isEmpty {
+                return extracted
+            }
+        }
+
+        return nil
+    case let array as [Any]:
+        for value in array {
+            if let extracted = extractUsageErrorText(fromJSONObject: value),
+               !extracted.isEmpty {
+                return extracted
+            }
+        }
+        return nil
+    case let string as String:
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    case let number as NSNumber:
+        return number.stringValue
+    default:
+        return nil
+    }
 }

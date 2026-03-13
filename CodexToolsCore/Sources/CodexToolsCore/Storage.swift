@@ -89,21 +89,35 @@ public final class StoreDomain: @unchecked Sendable {
     }
 
     public func removeAccount(_ accountID: String) throws {
+        try removeAccounts([accountID])
+    }
+
+    public func removeAccounts(_ accountIDs: [String]) throws {
         var store = try accountsRepository.loadStore()
-        let initial = store.accounts.count
-        store.accounts.removeAll { $0.id == accountID }
-        if store.accounts.count == initial {
+        let idsToRemove = Set(accountIDs)
+
+        guard !idsToRemove.isEmpty else {
+            return
+        }
+
+        let existingIDs = Set(store.accounts.map(\.id))
+        let missingIDs = idsToRemove.subtracting(existingIDs)
+        if let missingID = missingIDs.sorted().first {
             throw NSError(
                 domain: "StoreDomain",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Account not found: \(accountID)"]
+                userInfo: [NSLocalizedDescriptionKey: "Account not found: \(missingID)"]
             )
         }
 
-        if store.activeAccountID == accountID {
+        store.accounts.removeAll { idsToRemove.contains($0.id) }
+
+        if let activeAccountID = store.activeAccountID, idsToRemove.contains(activeAccountID) {
             store.activeAccountID = store.accounts.first?.id
         }
-        store.usageCache.removeValue(forKey: accountID)
+        for accountID in idsToRemove {
+            store.usageCache.removeValue(forKey: accountID)
+        }
 
         try accountsRepository.saveStore(store)
     }
@@ -198,6 +212,17 @@ public final class StoreDomain: @unchecked Sendable {
         for entry in entries {
             store.usageCache[entry.usage.accountID] = entry
         }
+        try accountsRepository.saveStore(store)
+    }
+
+    public func removeUsageCacheEntries(accountIDs: [String]) throws {
+        let idsToRemove = Set(accountIDs)
+        guard !idsToRemove.isEmpty else {
+            return
+        }
+
+        var store = try accountsRepository.loadStore()
+        store.usageCache = store.usageCache.filter { !idsToRemove.contains($0.key) }
         try accountsRepository.saveStore(store)
     }
 
