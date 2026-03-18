@@ -13,12 +13,17 @@ final class AppController: ObservableObject {
     var requestClosePopover: (() -> Void)?
 
     private let runtime: ServiceRuntime
+    private let switchCoordinator: AccountSwitchCoordinator
     private var loopTask: Task<Void, Never>?
     private var snapshotSubscriptionTask: Task<Void, Never>?
     private var monitoringMode: RuntimeMonitoringMode = .idle
 
-    init(runtime: ServiceRuntime = ServiceRuntime()) {
+    init(
+        runtime: ServiceRuntime = ServiceRuntime(),
+        switchCoordinator: AccountSwitchCoordinator? = nil
+    ) {
         self.runtime = runtime
+        self.switchCoordinator = switchCoordinator ?? AccountSwitchCoordinator(runtime: runtime)
 
         Task { @MainActor [weak self] in
             guard let self else {
@@ -38,7 +43,8 @@ final class AppController: ObservableObject {
     }
 
     func sendStatusCommand(_ command: StatusMenuCommand) {
-        if command == .closeCodex && !confirmCloseCodexProcesses() {
+        if case .switchAccount(let accountID) = command {
+            requestSwitchAccount(accountID, closePopover: true)
             return
         }
 
@@ -56,6 +62,11 @@ final class AppController: ObservableObject {
     }
 
     func sendManageAction(_ action: ManageAccountsAction) {
+        if case .switch(let accountID) = action {
+            requestSwitchAccount(accountID)
+            return
+        }
+
         Task {
             await runtime.handleManageAction(action)
         }
@@ -109,8 +120,27 @@ final class AppController: ObservableObject {
         sendManageAction(.deleteMany(accounts.map(\.id)))
     }
 
+    func requestSwitchAccount(_ accountID: String, closePopover: Bool = false) {
+        Task { @MainActor [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                _ = try await switchCoordinator.switchAccount(accountID) { [weak self] in
+                    guard closePopover else {
+                        return
+                    }
+                    self?.requestClosePopover?()
+                }
+            } catch {
+                showErrorAlert(title: "Operation Failed", message: error.localizedDescription)
+            }
+        }
+    }
+
     func switchToAccountFromPopover(_ accountID: String) {
-        sendStatusCommand(.switchAccount(accountID))
+        requestSwitchAccount(accountID, closePopover: true)
     }
 
     func closePopoverFromKeyboard() {
@@ -190,7 +220,7 @@ final class AppController: ObservableObject {
         switch command {
         case .switchAccount, .manageAccounts, .quitApp:
             return true
-        case .refreshAll, .closeCodex:
+        case .refreshAll:
             return false
         }
     }
@@ -210,16 +240,6 @@ final class AppController: ObservableObject {
             alert.informativeText = "These accounts will be removed from the list:\n\(preview)\(suffix)"
         }
         alert.addButton(withTitle: "Delete")
-        alert.addButton(withTitle: "Cancel")
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    private func confirmCloseCodexProcesses() -> Bool {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Are you sure you want to close all running Codex processes?"
-        alert.informativeText = "This will terminate active Codex CLI sessions and child processes."
-        alert.addButton(withTitle: "Close Codex")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn
     }

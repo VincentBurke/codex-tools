@@ -9,8 +9,8 @@ Lightweight, native Swift macOS menu bar app for switching between multiple Code
 - Fast menu bar account switching
 - Manage accounts (add/import/rename/delete)
 - Usage refresh with "next best" recommendation
-- Switch guardrails while Codex processes are running
-- Force Kill Codex
+- Prompted switching that closes Codex sessions when needed
+- Automatic Codex app relaunch after confirmed account switches
 
 ## Install
 

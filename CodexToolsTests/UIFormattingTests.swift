@@ -213,8 +213,7 @@ final class UIFormattingTests: XCTestCase {
         let result = resolveManageKeyboardCommand(
             .toggleExpanded,
             visibleAccounts: accounts,
-            selectedAccountID: "b",
-            canSwitch: true
+            selectedAccountID: "b"
         )
 
         XCTAssertEqual(result, .toggleExpanded("b"))
@@ -230,8 +229,7 @@ final class UIFormattingTests: XCTestCase {
         let result = resolveManageKeyboardCommand(
             .moveDown,
             visibleAccounts: accounts,
-            selectedAccountID: "a",
-            canSwitch: true
+            selectedAccountID: "a"
         )
 
         XCTAssertEqual(result, .select("b"))
@@ -246,8 +244,7 @@ final class UIFormattingTests: XCTestCase {
         let result = resolveManageKeyboardCommand(
             .switchSelected,
             visibleAccounts: accounts,
-            selectedAccountID: "b",
-            canSwitch: true
+            selectedAccountID: "b"
         )
 
         XCTAssertEqual(result, .switchAccount("b"))
@@ -262,8 +259,7 @@ final class UIFormattingTests: XCTestCase {
         let result = resolveManageKeyboardCommand(
             .switchSelected,
             visibleAccounts: accounts,
-            selectedAccountID: "b",
-            canSwitch: true
+            selectedAccountID: "b"
         )
 
         XCTAssertEqual(result, .none)
@@ -278,8 +274,7 @@ final class UIFormattingTests: XCTestCase {
         let result = resolveManageKeyboardCommand(
             .deleteSelected,
             visibleAccounts: accounts,
-            selectedAccountID: "b",
-            canSwitch: true
+            selectedAccountID: "b"
         )
 
         XCTAssertEqual(result, .requestDelete("b"))
@@ -391,13 +386,21 @@ final class UIFormattingTests: XCTestCase {
 
     func testManageRowActionPresentationUsesRemoveForTerminalUnavailableRows() {
         let presentation = makeManageRowActionPresentation(
-            account: makeManageAccount(id: "bad", active: false, availability: .paymentRequired),
-            canSwitch: true
+            account: makeManageAccount(id: "bad", active: false, availability: .paymentRequired)
         )
 
         XCTAssertEqual(presentation.kind, .remove)
         XCTAssertEqual(presentation.label, "Remove")
         XCTAssertTrue(presentation.isDestructive)
+    }
+
+    func testManageRowActionPresentationKeepsInactiveFreshRowsSwitchable() {
+        let presentation = makeManageRowActionPresentation(
+            account: makeManageAccount(id: "good", active: false, availability: .fresh)
+        )
+
+        XCTAssertEqual(presentation.kind, .switchAccount)
+        XCTAssertTrue(presentation.isEnabled)
     }
 
     func testTerminalUnavailableAccountsReturnsOnlyTerminalRows() {

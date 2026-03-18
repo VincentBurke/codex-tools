@@ -39,7 +39,6 @@ public enum StatusMenuCommand: Sendable, Equatable {
     case refreshAll
     case manageAccounts
     case switchAccount(String)
-    case closeCodex
     case quitApp
 }
 

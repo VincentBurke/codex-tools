@@ -28,9 +28,7 @@ enum A11yID {
         static let refresh = "popover.refresh"
         static let nextBestCard = "popover.nextBest.card"
         static let nextBestSwitch = "popover.nextBest.switch"
-        static let nextBestUnavailable = "popover.nextBest.unavailable"
         static let manage = "popover.manage"
-        static let closeCodex = "popover.closeCodex"
         static let quit = "popover.quit"
 
         static func row(_ accountID: String) -> String {

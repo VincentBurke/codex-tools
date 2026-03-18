@@ -432,8 +432,7 @@ func nextSelectionID(currentID: String?, accountIDs: [String], direction: Manage
 func resolveManageKeyboardCommand(
     _ command: ManageKeyboardCommand,
     visibleAccounts: [ManageAccountItem],
-    selectedAccountID: String?,
-    canSwitch: Bool
+    selectedAccountID: String?
 ) -> ManageKeyboardResolution {
     let accountIDs = visibleAccounts.map(\.id)
 
@@ -445,7 +444,7 @@ func resolveManageKeyboardCommand(
         guard let selected = visibleAccounts.first(where: { $0.id == selectedAccountID }) else {
             return .none
         }
-        guard canSwitch, !selected.isActive, !selected.availability.isTerminalUnavailable else {
+        guard !selected.isActive, !selected.availability.isTerminalUnavailable else {
             return .none
         }
         return .switchAccount(selected.id)
@@ -465,8 +464,7 @@ func resolveManageKeyboardCommand(
 }
 
 func makeManageRowActionPresentation(
-    account: ManageAccountItem,
-    canSwitch: Bool
+    account: ManageAccountItem
 ) -> ManageRowActionPresentation {
     if account.availability.isTerminalUnavailable {
         return ManageRowActionPresentation(
@@ -490,7 +488,7 @@ func makeManageRowActionPresentation(
         kind: .switchAccount,
         label: "Switch",
         isDestructive: false,
-        isEnabled: canSwitch
+        isEnabled: true
     )
 }
 

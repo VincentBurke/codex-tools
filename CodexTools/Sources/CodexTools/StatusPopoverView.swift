@@ -4,7 +4,6 @@ import SwiftUI
 struct StatusPopoverView: View {
     private enum FooterAction: Hashable {
         case manage
-        case closeCodex
         case quit
     }
 
@@ -93,15 +92,7 @@ struct StatusPopoverView: View {
                     }
                     .controlSize(.small)
                     .buttonStyle(.borderedProminent)
-                    .disabled(!controller.statusSnapshot.canSwitch)
                     .accessibilityIdentifier(A11yID.popover.nextBestSwitch)
-                }
-
-                if !controller.statusSnapshot.canSwitch {
-                    Text("Cannot switch accounts while Codex is running.")
-                        .font(UITheme.Font.caption)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier(A11yID.popover.nextBestUnavailable)
                 }
             }
             .padding(UITheme.Spacing.s)
@@ -138,11 +129,11 @@ struct StatusPopoverView: View {
     private func accountRow(_ account: StatusAccountEntry) -> some View {
         let model = makeStatusRowDisplayModel(account)
         let selected = selectedAccountID == account.id
-        let enabled = !account.isActive && controller.statusSnapshot.canSwitch
+        let enabled = !account.isActive
 
         return Button {
             selectedAccountID = account.id
-            controller.sendStatusCommand(.switchAccount(account.id))
+            controller.requestSwitchAccount(account.id, closePopover: true)
         } label: {
             HStack(spacing: UITheme.Spacing.s) {
                 Circle()
@@ -199,15 +190,6 @@ struct StatusPopoverView: View {
 
             menuButton("Manage Accounts...", a11yID: A11yID.popover.manage) {
                 controller.sendStatusCommand(.manageAccounts)
-            }
-
-            menuButton(
-                "Close Codex",
-                disabled: controller.statusSnapshot.processCount == 0,
-                footerAction: .closeCodex,
-                a11yID: A11yID.popover.closeCodex
-            ) {
-                controller.sendStatusCommand(.closeCodex)
             }
 
             Divider()
@@ -304,19 +286,16 @@ struct StatusPopoverView: View {
             return
         }
 
-        guard controller.statusSnapshot.canSwitch, !account.isActive else {
+        guard !account.isActive else {
             return
         }
 
-        controller.sendStatusCommand(.switchAccount(account.id))
+        controller.requestSwitchAccount(account.id, closePopover: true)
     }
 
     private func syncSelection() {
-        // When switching is blocked we force-highlight the active account so the selection
-        // cannot point at a row the user cannot actually switch to.
-        let currentSelection = controller.statusSnapshot.canSwitch ? selectedAccountID : nil
         selectedAccountID = reconcileSelectionID(
-            currentID: currentSelection,
+            currentID: selectedAccountID,
             accounts: accounts,
             id: \.id,
             isActive: \.isActive

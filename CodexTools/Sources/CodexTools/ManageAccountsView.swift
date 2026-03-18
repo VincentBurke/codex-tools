@@ -370,7 +370,7 @@ struct ManageAccountsView: View {
     }
 
     private func switchActionControl(for account: ManageAccountItem) -> some View {
-        let presentation = makeManageRowActionPresentation(account: account, canSwitch: controller.manageSnapshot.canSwitch)
+        let presentation = makeManageRowActionPresentation(account: account)
 
         return Group {
             switch presentation.kind {
@@ -381,7 +381,7 @@ struct ManageAccountsView: View {
             case .switchAccount:
                 Button(presentation.label) {
                     controller.setSelectedManageAccountID(account.id)
-                    controller.sendManageAction(.switch(account.id))
+                    controller.requestSwitchAccount(account.id)
                 }
                 .controlSize(.small)
                 .buttonStyle(.bordered)
@@ -572,8 +572,7 @@ struct ManageAccountsView: View {
         let resolution = resolveManageKeyboardCommand(
             command,
             visibleAccounts: visibleAccounts,
-            selectedAccountID: controller.selectedManageAccountID,
-            canSwitch: controller.manageSnapshot.canSwitch
+            selectedAccountID: controller.selectedManageAccountID
         )
 
         switch resolution {
@@ -582,7 +581,7 @@ struct ManageAccountsView: View {
         case .select(let nextID):
             controller.setSelectedManageAccountID(nextID)
         case .switchAccount(let id):
-            controller.sendManageAction(.switch(id))
+            controller.requestSwitchAccount(id)
         case .requestDelete(let id):
             guard let account = visibleAccounts.first(where: { $0.id == id }) else {
                 return

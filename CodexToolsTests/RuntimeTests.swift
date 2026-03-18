@@ -213,7 +213,63 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
-    func testSwitchBlockedWhenProcessesRunning() async throws {
+    func testInspectProcessesNowPublishesUpdatedSnapshots() async throws {
+        let tempHome = try makeTempDirectory()
+
+        try await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: StubProcessService(processCount: 2),
+                processTerminator: StubProcessService(processCount: 2)
+            )
+
+            await runtime.boot()
+
+            let processInfo = try await runtime.inspectProcessesNow()
+            XCTAssertEqual(processInfo.count, 2)
+
+            let statusSnapshot = await runtime.currentStatusSnapshot()
+            XCTAssertEqual(statusSnapshot.processCount, 2)
+            XCTAssertFalse(statusSnapshot.canSwitch)
+
+            let manageSnapshot = await runtime.currentManageSnapshot()
+            XCTAssertFalse(manageSnapshot.canSwitch)
+        }
+    }
+
+    func testTerminateCodexProcessesNowPublishesUpdatedSnapshots() async throws {
+        let tempHome = try makeTempDirectory()
+
+        try await withEnv("CODEX_TOOLS_HOME", tempHome.path) {
+            let repository = FileStoreRepository()
+            let domain = StoreDomain(accountsRepository: repository)
+            let processService = TerminatesToZeroProcessService(initialProcessCount: 2)
+
+            let runtime = ServiceRuntime(
+                storeDomain: domain,
+                authSwitcher: FileAuthSwitcher(),
+                usageClient: StubUsageClient(),
+                oauthClient: StubOAuthClient(),
+                processInspector: processService,
+                processTerminator: processService
+            )
+
+            await runtime.boot()
+            let terminatedCount = try await runtime.terminateCodexProcessesNow()
+            XCTAssertEqual(terminatedCount, 2)
+
+            let statusSnapshot = await runtime.currentStatusSnapshot()
+            XCTAssertEqual(statusSnapshot.processCount, 0)
+            XCTAssertTrue(statusSnapshot.canSwitch)
+        }
+    }
+
+    func testDirectSwitchFailsWhenProcessesRunning() async throws {
         let tempHome = try makeTempDirectory()
         let tempCodex = try makeTempDirectory()
 
@@ -236,7 +292,15 @@ final class RuntimeTests: XCTestCase {
                 )
 
                 await runtime.boot()
-                await runtime.handleStatusCommand(.switchAccount(second.id))
+                do {
+                    try await runtime.switchAccountNow(second.id)
+                    XCTFail("Expected switch to fail while processes are running")
+                } catch {
+                    XCTAssertEqual(
+                        error.localizedDescription,
+                        "Cannot switch account while Codex processes are running"
+                    )
+                }
 
                 let store = try domain.loadStore()
                 XCTAssertEqual(store.activeAccountID, first.id)
@@ -887,6 +951,33 @@ private final class CountingProcessService: ProcessInspector, ProcessTerminator,
         lock.lock()
         defer { lock.unlock() }
         return checks
+    }
+}
+
+private final class TerminatesToZeroProcessService: ProcessInspector, ProcessTerminator, @unchecked Sendable {
+    private let lock = NSLock()
+    private var processCount: Int
+
+    init(initialProcessCount: Int) {
+        self.processCount = initialProcessCount
+    }
+
+    func checkCodexProcesses() throws -> CodexProcessInfo {
+        lock.lock()
+        defer { lock.unlock() }
+        return CodexProcessInfo(
+            count: processCount,
+            canSwitch: processCount == 0,
+            pids: processCount == 0 ? [] : Array(repeating: 9999, count: processCount)
+        )
+    }
+
+    func terminateCodexProcesses() throws -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        let terminatedCount = processCount
+        processCount = 0
+        return terminatedCount
     }
 }
 

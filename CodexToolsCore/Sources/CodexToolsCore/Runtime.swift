@@ -140,6 +140,37 @@ public actor ServiceRuntime {
         manageSnapshot
     }
 
+    public func inspectProcessesNow() throws -> CodexProcessInfo {
+        let processInfo = try refreshProcessState()
+        publishSnapshots(now: Date())
+        return processInfo
+    }
+
+    public func terminateCodexProcessesNow() throws -> Int {
+        do {
+            let terminatedCount = try processTerminator.terminateCodexProcesses()
+            _ = try refreshProcessState()
+            publishSnapshots(now: Date())
+            return terminatedCount
+        } catch {
+            // Termination may have partially succeeded; refresh best-effort so UI safety state
+            // reflects the actual remaining processes before surfacing the failure.
+            try? refreshProcessStateAndPublish()
+            throw error
+        }
+    }
+
+    public func switchAccountNow(_ accountID: String) async throws {
+        _ = try refreshProcessState()
+        do {
+            try await performSwitchAccount(accountID)
+            publishSnapshots(now: Date())
+        } catch {
+            publishSnapshots(now: Date())
+            throw error
+        }
+    }
+
     public func handleStatusCommand(_ command: StatusMenuCommand) async {
         switch command {
         case .refreshAll:
@@ -147,10 +178,8 @@ public actor ServiceRuntime {
         case .manageAccounts:
             break
         case .switchAccount(let accountID):
-            await handleSwitchAccount(accountID)
-        case .closeCodex:
             do {
-                _ = try processTerminator.terminateCodexProcesses()
+                try await switchAccountNow(accountID)
             } catch {
                 setError(error.localizedDescription)
             }
@@ -171,7 +200,11 @@ public actor ServiceRuntime {
                 await importFromFile(path: path)
             }
         case .switch(let id):
-            await handleSwitchAccount(id)
+            do {
+                try await switchAccountNow(id)
+            } catch {
+                setError(error.localizedDescription)
+            }
         case .refreshUsage(let id):
             startRefreshSingle(accountID: id)
         case .renameInline(let id, let newName):
@@ -187,7 +220,7 @@ public actor ServiceRuntime {
 
     private func completeCommandHandling() {
         do {
-            state.processInfo = try processInspector.checkCodexProcesses()
+            _ = try refreshProcessState()
         } catch {
             setError(error.localizedDescription)
         }
@@ -195,40 +228,43 @@ public actor ServiceRuntime {
         publishSnapshots(now: Date())
     }
 
-    private func handleSwitchAccount(_ accountID: String) async {
-        do {
-            state.processInfo = try processInspector.checkCodexProcesses()
-        } catch {
-            setError(error.localizedDescription)
-            return
-        }
+    private func refreshProcessState() throws -> CodexProcessInfo {
+        let processInfo = try processInspector.checkCodexProcesses()
+        state.processInfo = processInfo
+        return processInfo
+    }
 
+    private func refreshProcessStateAndPublish() throws {
+        _ = try refreshProcessState()
+        publishSnapshots(now: Date())
+    }
+
+    private func performSwitchAccount(_ accountID: String) async throws {
         let isActive = state.activeAccountID() == accountID
         if state.hasRunningProcesses() && !isActive {
-            setError("Cannot switch account while Codex processes are running")
-            return
+            throw NSError(
+                domain: "ServiceRuntime",
+                code: 101,
+                userInfo: [NSLocalizedDescriptionKey: "Cannot switch account while Codex processes are running"]
+            )
         }
 
+        let store = try storeDomain.loadStore()
+        guard let account = store.accounts.first(where: { $0.id == accountID }) else {
+            throw NSError(
+                domain: "ServiceRuntime",
+                code: 100,
+                userInfo: [NSLocalizedDescriptionKey: "Account not found: \(accountID)"]
+            )
+        }
+
+        try authSwitcher.switchToAccount(account)
+        try storeDomain.setActiveAccount(accountID)
+        try storeDomain.touchAccount(accountID)
+        try loadAccounts(preserveUsage: true)
+
         do {
-            let store = try storeDomain.loadStore()
-            guard let account = store.accounts.first(where: { $0.id == accountID }) else {
-                throw NSError(
-                    domain: "ServiceRuntime",
-                    code: 100,
-                    userInfo: [NSLocalizedDescriptionKey: "Account not found: \(accountID)"]
-                )
-            }
-
-            try authSwitcher.switchToAccount(account)
-            try storeDomain.setActiveAccount(accountID)
-            try storeDomain.touchAccount(accountID)
-            try loadAccounts(preserveUsage: true)
-
-            do {
-                _ = try await refreshSingleUsageAutomatic(accountID: accountID)
-            } catch {
-                setError(error.localizedDescription)
-            }
+            _ = try await refreshSingleUsageAutomatic(accountID: accountID)
         } catch {
             setError(error.localizedDescription)
         }
